@@ -1,0 +1,34 @@
+{
+  "name": "advantage",
+  "private": true,
+  "version": "0.1.0",
+  "description": "adVantage - personal budget tracker (offline-first, SQLite WASM)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "preview": "turbo run preview",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "db:generate": "turbo run db:generate",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "rimraf": "^6.1.3",
+    "turbo": "^2.11.2",
+    "typescript": "^5.9.3"
+  },
+  "packageManager": "npm@11.17.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
+  }
+}

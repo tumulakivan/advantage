@@ -1,0 +1,116 @@
+{
+  "format": "advantage-plan",
+  "version": 1,
+  "name": "Example plan",
+  "preparedOn": "2026-09-19",
+  "replaceExisting": true,
+  "_comment": "Things that have NOT happened yet. Importing this loads the Planned screen and, via the `accounts` block, sets up wallets with their opening balances. Nothing here touches a balance until you log it. All figures are made up - replace them with your own and keep the file in data/private/, which is gitignored.",
+  "accounts": [
+    {
+      "slug": "maribank",
+      "name": "Maribank",
+      "type": "bank",
+      "icon": "Landmark",
+      "openingBalance": 0
+    },
+    {
+      "slug": "unionbank",
+      "name": "UnionBank",
+      "type": "bank",
+      "icon": "Landmark",
+      "openingBalance": 0
+    },
+    {
+      "slug": "gcash",
+      "name": "GCash",
+      "type": "ewallet",
+      "icon": "Smartphone",
+      "openingBalance": 0
+    },
+    {
+      "slug": "wise",
+      "name": "Wise",
+      "type": "ewallet",
+      "icon": "Landmark",
+      "openingBalance": 0
+    },
+    {
+      "slug": "cash",
+      "name": "Cash",
+      "type": "cash",
+      "icon": "Banknote",
+      "openingBalance": 0
+    }
+  ],
+  "planned": [
+    {
+      "name": "Weekly pay",
+      "type": "income",
+      "amount": 10000,
+      "date": "2026-09-22",
+      "frequency": "weekly",
+      "category": "income-rental",
+      "account": "maribank",
+      "source": "live-luxe",
+      "note": "Every Tuesday."
+    },
+    {
+      "name": "Monthly salary",
+      "type": "income",
+      "amount": 25000,
+      "date": "2026-09-28",
+      "frequency": "monthly",
+      "category": "income-salary",
+      "account": "maribank",
+      "source": "mentis"
+    },
+    {
+      "name": "Internet",
+      "type": "expense",
+      "amount": 1200,
+      "date": "2026-09-28",
+      "frequency": "monthly",
+      "category": "bills-internet",
+      "account": "maribank"
+    },
+    {
+      "name": "Electricity",
+      "type": "expense",
+      "amount": 1800,
+      "date": "2026-09-28",
+      "frequency": "monthly",
+      "category": "bills-electricity",
+      "account": "maribank"
+    },
+    {
+      "name": "Food & transport",
+      "type": "expense",
+      "amount": 1000,
+      "date": "2026-09-21",
+      "frequency": "weekly",
+      "category": "food",
+      "account": "cash",
+      "note": "Weekday spending, logged once a week."
+    },
+    {
+      "name": "Installment",
+      "type": "expense",
+      "amount": 2500,
+      "date": "2026-10-01",
+      "frequency": "once",
+      "category": "loans-bnpl",
+      "account": "gcash",
+      "note": "A one-off: it fires on this date and then it is done."
+    },
+    {
+      "name": "Laptop",
+      "type": "expense",
+      "amount": 60000,
+      "date": "2026-12-29",
+      "frequency": "once",
+      "category": "life-shopping",
+      "account": "maribank",
+      "note": "A planned purchase, so Outlook can show what it does to the month."
+    }
+  ]
+}

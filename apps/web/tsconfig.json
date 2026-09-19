@@ -1,0 +1,19 @@
+{
+  "extends": "@advantage/typescript-config/react-app.json",
+  "compilerOptions": {
+    "types": [
+      "vite/client",
+      "node"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "vite.config.ts"
+  ]
+}

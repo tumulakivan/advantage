@@ -1,0 +1,10 @@
+{
+  "name": "@advantage/typescript-config",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "files": ["base.json", "react-app.json", "library.json"]
+}

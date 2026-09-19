@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Internal library (source-consumed, no build step)",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false
+  }
+}

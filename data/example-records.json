@@ -1,0 +1,65 @@
+{
+  "format": "advantage-records",
+  "version": 1,
+  "_comment": "Things that already happened. Import from Settings -> Import a file. One object per row; `category` matches a category slug or its visible name, `account` matches an account slug or name, `source` matches an income source. Anything unmatched is reported after the import rather than silently dropped. All figures here are made up.",
+  "records": [
+    {
+      "type": "income",
+      "amount": 25000,
+      "date": "2026-09-15",
+      "category": "income-salary",
+      "source": "Mentis",
+      "account": "maribank",
+      "payee": "Monthly salary"
+    },
+    {
+      "type": "income",
+      "amount": 15000,
+      "date": "2026-09-15",
+      "category": "income-rental",
+      "source": "Live Luxe",
+      "account": "maribank",
+      "payee": "Rental payout"
+    },
+    {
+      "type": "expense",
+      "amount": 1200,
+      "date": "2026-09-05",
+      "category": "bills-internet",
+      "account": "maribank",
+      "payee": "Internet"
+    },
+    {
+      "type": "expense",
+      "amount": 1800,
+      "date": "2026-09-05",
+      "category": "bills-electricity",
+      "account": "maribank",
+      "payee": "Electricity"
+    },
+    {
+      "type": "expense",
+      "amount": 2500,
+      "date": "2026-09-10",
+      "category": "loans-bnpl",
+      "account": "gcash",
+      "payee": "Installment",
+      "note": "Buy now, pay later"
+    },
+    {
+      "type": "expense",
+      "amount": 950,
+      "date": "2026-09-12",
+      "category": "food-groceries",
+      "account": "Cash",
+      "payee": "Groceries"
+    },
+    {
+      "type": "transfer",
+      "amount": 5000,
+      "date": "2026-09-16",
+      "account": "maribank",
+      "payee": "Moved to savings"
+    }
+  ]
+}

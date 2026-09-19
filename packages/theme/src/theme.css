@@ -1,0 +1,323 @@
+/* ---------------------------------------------------------------------------
+   adVantage design tokens
+   ---------------------------------------------------------------------------
+   Dark is the default: `<html class="dark">` is stamped before paint, and the
+   :root block below is the LIGHT fallback so `dark:` variants behave the way
+   every Tailwind/shadcn component expects.
+
+   Surface family: graphite (Windows Terminal-ish), never pure black.
+   Accent: yellow-green lime.
+
+   Chart colors are a *selected* dark set, not a flipped light set. Every
+   categorical slot was validated with the data-viz validator against the card
+   surface #1d1f23 (lightness band, chroma floor, protan/deutan separation,
+   normal-vision floor, 3:1 contrast). Do not hand-edit these: re-run the
+   validator if you change one.
+--------------------------------------------------------------------------- */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.75rem;
+
+  /* ---- light (opt-in) ---- */
+  --background: #f6f7f6;
+  --foreground: #14171a;
+  --card: #ffffff;
+  --card-foreground: #14171a;
+  --popover: #ffffff;
+  --popover-foreground: #14171a;
+  --primary: #4d7c0f;
+  --primary-foreground: #f7fee7;
+  --secondary: #eceeed;
+  --secondary-foreground: #14171a;
+  --muted: #f1f3f2;
+  --muted-foreground: #5b6369;
+  --accent: #e9ece9;
+  --accent-foreground: #14171a;
+  --destructive: #c62a2f;
+  --destructive-foreground: #ffffff;
+  --border: #e2e5e3;
+  --input: #d8dcd9;
+  --ring: #65a30d;
+
+  /*
+   * The app chrome stays dark in both modes, so its accent cannot follow
+   * --primary: the light theme darkens that for white cards, which would leave
+   * the active nav item unreadable against a dark rail.
+   */
+  --sidebar: #191c1f;
+  --sidebar-foreground: #d3d8dc;
+  --sidebar-muted: #8b949c;
+  --sidebar-border: #262b2f;
+  --sidebar-accent: rgb(255 255 255 / 0.07);
+  --sidebar-active: rgb(163 230 53 / 0.14);
+  --sidebar-primary: #a3e635;
+
+  /* ---- money semantics ---- */
+  --money-in: #4d7c0f;
+  --money-out: #c62a2f;
+  --good: #0ca30c;
+  --warning: #b45309;
+  --critical: #c62a2f;
+
+  /* ---- charts (light steps) ---- */
+  --chart-surface: #ffffff;
+  --chart-grid: rgb(20 23 26 / 0.08);
+  --chart-axis: #5b6369;
+  --chart-income: #4d7c0f;
+  --chart-income-emphasis: #65a30d;
+  --chart-expense: #d03b3b;
+  --chart-net: #2a78d6;
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #4a3aa7;
+  --chart-other: #6b7280;
+}
+
+.dark {
+  /* ---- dark (default) ---- */
+  --background: #16181b;
+  --foreground: #e7eaed;
+  --card: #1d1f23;
+  --card-foreground: #e7eaed;
+  --popover: #22262b;
+  --popover-foreground: #e7eaed;
+  --primary: #a3e635;
+  --primary-foreground: #14200a;
+  --secondary: #262b31;
+  --secondary-foreground: #e7eaed;
+  --muted: #212529;
+  --muted-foreground: #98a0a8;
+  --accent: #2a2f36;
+  --accent-foreground: #f2f5f7;
+  --destructive: #e5484d;
+  --destructive-foreground: #1a0507;
+  --border: #2c3137;
+  --input: #2c3137;
+  --ring: #a3e635;
+
+  --sidebar: #101214;
+  --sidebar-foreground: #cfd4d9;
+  --sidebar-muted: #7d868e;
+  --sidebar-border: #1e2226;
+  --sidebar-accent: rgb(255 255 255 / 0.06);
+  --sidebar-active: rgb(163 230 53 / 0.12);
+  --sidebar-primary: #a3e635;
+
+  --money-in: #a3e635;
+  --money-out: #e66767;
+  --good: #a3e635;
+  --warning: #fab219;
+  --critical: #e5484d;
+
+  --chart-surface: #1d1f23;
+  --chart-grid: rgb(255 255 255 / 0.07);
+  --chart-axis: #98a0a8;
+  --chart-income: #6a9414;
+  --chart-income-emphasis: #a3e635;
+  --chart-expense: #e66767;
+  --chart-net: #3987e5;
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-other: #7c858e;
+}
+
+@theme inline {
+  --font-sans: "DM Sans Variable", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-primary: var(--sidebar-primary);
+
+  --color-money-in: var(--money-in);
+  --color-money-out: var(--money-out);
+  --color-good: var(--good);
+  --color-warning: var(--warning);
+  --color-critical: var(--critical);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 10px);
+
+  --animate-in: enter 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-overlay-in: overlay-in 150ms ease-out;
+  --animate-sheet-in: sheet-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-shimmer: shimmer 1.6s linear infinite;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /*
+   * Tailwind v4's preflight gives buttons `cursor: default`, matching the raw
+   * browser behaviour. Restore the pointer here rather than adding
+   * `cursor-pointer` to every component: one rule cannot be forgotten on the
+   * next control, and it covers the elements that only *behave* like buttons -
+   * Radix tabs, options and radios are divs and spans under the hood.
+   */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="radio"]:not([aria-disabled="true"]),
+  [role="option"]:not([data-disabled]),
+  [role="menuitem"]:not([data-disabled]),
+  [role="switch"]:not(:disabled),
+  summary,
+  select:not(:disabled),
+  label[for]:not([aria-disabled="true"]),
+  a[href] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  [aria-disabled="true"],
+  [data-disabled] {
+    cursor: not-allowed;
+  }
+
+  /* A date or month field opens a picker; the whole control is the target. */
+  input[type="date"]:not(:disabled),
+  input[type="month"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* money never jitters between renders */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  ::selection {
+    background-color: rgb(163 230 53 / 0.25);
+  }
+
+  /* graphite scrollbars, terminal-flavored */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+}

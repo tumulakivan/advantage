@@ -1,0 +1,6 @@
+{
+  "//": "Root stub. Each workspace owns its real tsconfig; `turbo run typecheck` fans out.",
+  "extends": "./packages/typescript-config/base.json",
+  "files": [],
+  "include": []
+}
