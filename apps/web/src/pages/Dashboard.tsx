@@ -1,7 +1,7 @@
 import { formatPercent, relativeDayLabel } from "@advantage/core";
 import { slotColor, SERIES } from "@advantage/theme";
-import type { PlannedRow } from "@advantage/db";
-import { postPlanned } from "@advantage/db";
+import type { PlannedRow } from "@advantage/api-client";
+import { postPlanned } from "@advantage/api-client";
 import {
   CalendarClock,
   CircleAlert,
@@ -15,7 +15,7 @@ import {
 import * as React from "react";
 import { Link } from "react-router-dom";
 
-import { BrandMark } from "@/components/brand/BrandMark";
+import { SourceChip } from "@/components/transactions/SourcePicker";
 import { CashflowChart, CashflowLegend, CashflowTable } from "@/components/charts/CashflowChart";
 import { ChartCard } from "@/components/charts/ChartCard";
 import { OutlookCard } from "@/components/dashboard/OutlookCard";
@@ -37,7 +37,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useBudgets, useDashboard, useUpcoming } from "@/hooks/useData";
 import { useMutation } from "@/hooks/useLiveQuery";
 import { useMonth } from "@/hooks/useMonth";
-import { useDb } from "@/providers/DbProvider";
+import { useApi } from "@/providers/SessionProvider";
 import { useSettings } from "@/providers/SettingsProvider";
 
 export function DashboardPage() {
@@ -45,7 +45,7 @@ export function DashboardPage() {
   const { settings } = useSettings();
   const [formOpen, setFormOpen] = React.useState(false);
 
-  const { data, loading } = useDashboard(month, settings.locale);
+  const { data, stale } = useDashboard(month, settings.locale);
   const budgets = useBudgets(month).data;
   const upcoming = useUpcoming(21).data;
 
@@ -78,9 +78,13 @@ export function DashboardPage() {
         }
       />
 
-      {loading && data.cashflow.length === 0 ? <DashboardSkeleton /> : null}
+      {/* While the figures for a newly picked month are in flight, show the
+          skeleton rather than last month's numbers under this month's heading.
+          Wallet and Outlook are left mounted below: they run their own queries,
+          handle their own staleness, and hold view state a remount would lose. */}
+      {stale ? <DashboardSkeleton /> : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className={stale ? "hidden" : "grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4"}>
         <KpiTile
           label="Income"
           minor={data.kpis.incomeMinor}
@@ -124,7 +128,7 @@ export function DashboardPage() {
         />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.55fr_1fr]">
+      <div className={stale ? "hidden" : "grid gap-4 xl:grid-cols-[1.55fr_1fr]"}>
         <ChartCard
           title="Cash flow"
           description="Last six months. Income above the line, spending below it."
@@ -155,13 +159,13 @@ export function DashboardPage() {
 
       <OutlookCard />
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className={stale ? "hidden" : "grid gap-4 xl:grid-cols-3"}>
         <IncomeSources sources={data.sources} totalMinor={data.kpis.incomeMinor} />
         <UpcomingCard rows={upcoming} />
         <BudgetsCard budgets={budgets} />
       </div>
 
-      <Card>
+      <Card className={stale ? "hidden" : undefined}>
         <CardHeader>
           <CardTitle>Biggest expenses this month</CardTitle>
         </CardHeader>
@@ -211,7 +215,7 @@ function IncomeSources({
           const share = totalMinor > 0 ? source.amountMinor / totalMinor : 0;
           return (
             <div key={source.id} className="flex items-center gap-3">
-              <BrandMark logo={source.logo} size="md" />
+              <SourceChip source={source} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-3">
                   <p className="truncate text-[13.5px] font-semibold">{source.shortName}</p>
@@ -243,7 +247,7 @@ function IncomeSources({
 }
 
 function UpcomingCard({ rows }: { rows: PlannedRow[] }) {
-  const db = useDb();
+  const api = useApi();
   const { run, pending } = useMutation();
 
   return (
@@ -305,7 +309,7 @@ function UpcomingCard({ rows }: { rows: PlannedRow[] }) {
                       variant="outline"
                       size="sm"
                       disabled={pending}
-                      onClick={() => void run(() => postPlanned(db, row.id))}
+                      onClick={() => void run(() => postPlanned(api, row.id))}
                     >
                       Log it
                     </Button>

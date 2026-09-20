@@ -5,7 +5,7 @@ import {
   updateTransaction,
   type IncomeSource,
   type TransactionRow,
-} from "@advantage/db";
+} from "@advantage/api-client";
 import { ArrowLeftRight, Loader2, Trash2, TrendingDown, TrendingUp } from "lucide-react";
 import * as React from "react";
 
@@ -24,7 +24,7 @@ import { Field } from "@/components/ui/label";
 import { Input, Textarea } from "@/components/ui/input";
 import { useAccounts, useCategoryOptions, useIncomeSources } from "@/hooks/useData";
 import { useMutation } from "@/hooks/useLiveQuery";
-import { useDb } from "@/providers/DbProvider";
+import { useApi } from "@/providers/SessionProvider";
 import { cn } from "@/lib/utils";
 
 interface FormState {
@@ -75,7 +75,7 @@ export function TransactionForm({
   record?: TransactionRow | null;
   defaultType?: TransactionType;
 }) {
-  const db = useDb();
+  const api = useApi();
   const { run, pending, error } = useMutation();
   const [state, setState] = React.useState<FormState>(() => initialState(record, defaultType));
   const [touched, setTouched] = React.useState(false);
@@ -144,8 +144,8 @@ export function TransactionForm({
     };
 
     const saved = await run(async () => {
-      if (record) await updateTransaction(db, record.id, payload);
-      else await createTransaction(db, payload);
+      if (record) await updateTransaction(api, record.id, payload);
+      else await createTransaction(api, payload);
       return true;
     });
     if (saved) onOpenChange(false);
@@ -154,7 +154,7 @@ export function TransactionForm({
   async function remove() {
     if (!record) return;
     const removed = await run(async () => {
-      await deleteTransaction(db, record.id);
+      await deleteTransaction(api, record.id);
       return true;
     });
     if (removed) onOpenChange(false);

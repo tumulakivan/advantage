@@ -13,7 +13,7 @@ import {
 import { CalendarRange, ChevronLeft, ChevronRight, Telescope } from "lucide-react";
 import * as React from "react";
 
-import { BrandMark } from "@/components/brand/BrandMark";
+import { SourceChip } from "@/components/transactions/SourcePicker";
 import { ChartCard } from "@/components/charts/ChartCard";
 import { OutlookChart, OutlookLegend, OutlookTable } from "@/components/charts/OutlookChart";
 import { Amount } from "@/components/common/Amount";
@@ -83,7 +83,7 @@ export function OutlookCard() {
     };
   }, [mode, month, rangeFrom, rangeTo, year, settings.locale]);
 
-  const { data, loading } = useOutlook(
+  const { data, loading, stale } = useOutlook(
     window.from,
     window.to,
     settings.locale,
@@ -112,11 +112,17 @@ export function OutlookCard() {
           />
         }
       >
-        {totals.loggedCount + totals.plannedCount === 0 ? (
+        {/* `stale` first: the caption above already says the new timeframe, so
+            the figures from the old one must not sit underneath it. */}
+        {stale || totals.loggedCount + totals.plannedCount === 0 ? (
           <EmptyState
             icon={Telescope}
             title={loading ? "Working it out" : "Nothing falls in this window"}
-            description="Add a planned payment, or widen the timeframe."
+            description={
+              loading
+                ? `Reading ${window.caption.toLowerCase()}.`
+                : "Add a planned payment, or widen the timeframe."
+            }
           />
         ) : (
           <>
@@ -159,7 +165,7 @@ export function OutlookCard() {
         )}
       </ChartCard>
 
-      <EntryList entries={entries} caption={window.caption} />
+      <EntryList entries={entries} caption={window.caption} stale={stale} />
     </section>
   );
 }
@@ -224,23 +230,23 @@ function TimeframeControls({
   onYear: (year: number) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+    <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
       {mode === "range" ? (
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-initial">
           <Input
             type="month"
             aria-label="From month"
             value={rangeFrom}
             onChange={(event) => event.target.value && onRangeFrom(event.target.value)}
-            className="h-8 w-[9.5rem] text-[13px]"
+            className="h-8 min-w-0 flex-1 text-[13px] sm:w-[9.5rem] sm:flex-initial"
           />
-          <span className="text-muted-foreground text-[12px]">to</span>
+          <span className="text-muted-foreground shrink-0 text-[12px]">to</span>
           <Input
             type="month"
             aria-label="To month"
             value={rangeTo}
             onChange={(event) => event.target.value && onRangeTo(event.target.value)}
-            className="h-8 w-[9.5rem] text-[13px]"
+            className="h-8 min-w-0 flex-1 text-[13px] sm:w-[9.5rem] sm:flex-initial"
           />
         </div>
       ) : null}
@@ -275,7 +281,16 @@ function TimeframeControls({
   );
 }
 
-function EntryList({ entries, caption }: { entries: OutlookEntry[]; caption: string }) {
+function EntryList({
+  entries,
+  caption,
+  stale,
+}: {
+  entries: OutlookEntry[];
+  caption: string;
+  /** The rows belong to a timeframe the caption no longer describes. */
+  stale: boolean;
+}) {
   const { settings } = useSettings();
   const today = todayIso();
   const shown = entries.slice(0, LIST_LIMIT);
@@ -293,19 +308,27 @@ function EntryList({ entries, caption }: { entries: OutlookEntry[]; caption: str
             Every record and scheduled payment in {caption.toLowerCase()}.
           </p>
         </div>
-        <p className="text-muted-foreground text-[12px]">
-          {entries.length} {entries.length === 1 ? "item" : "items"}
-          {plannedTotal !== 0 ? (
-            <>
-              {" · "}
-              <Amount minor={plannedTotal} direction="auto" hideCents className="text-[12px]" />
-              {" still only planned"}
-            </>
-          ) : null}
-        </p>
+        {stale ? null : (
+          <p className="text-muted-foreground text-[12px]">
+            {entries.length} {entries.length === 1 ? "item" : "items"}
+            {plannedTotal !== 0 ? (
+              <>
+                {" · "}
+                <Amount minor={plannedTotal} direction="auto" hideCents className="text-[12px]" />
+                {" still only planned"}
+              </>
+            ) : null}
+          </p>
+        )}
       </div>
 
-      {entries.length === 0 ? (
+      {stale ? (
+        <EmptyState
+          icon={Telescope}
+          title="Working it out"
+          description={`Reading ${caption.toLowerCase()}.`}
+        />
+      ) : entries.length === 0 ? (
         <EmptyState
           icon={Telescope}
           title="Nothing in this window"
@@ -325,8 +348,11 @@ function EntryList({ entries, caption }: { entries: OutlookEntry[]; caption: str
                   entry.kind === "planned" && "bg-muted/20",
                 )}
               >
-                {entry.direction === "income" && entry.sourceLogo ? (
-                  <BrandMark logo={entry.sourceLogo} size="sm" />
+                {entry.direction === "income" && entry.sourceColor ? (
+                  <SourceChip
+                    size="sm"
+                    source={{ shortName: entry.detail, name: entry.label, color: entry.sourceColor }}
+                  />
                 ) : (
                   <CategoryIcon icon={entry.categoryIcon} color={entry.categoryColor} size="sm" />
                 )}

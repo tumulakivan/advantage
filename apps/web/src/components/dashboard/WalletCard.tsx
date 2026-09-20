@@ -1,5 +1,5 @@
 import { ACCOUNT_TYPE_LABELS, formatPercent, monthEnd, monthStart } from "@advantage/core";
-import type { AccountActivity } from "@advantage/db";
+import type { AccountActivity } from "@advantage/api-client";
 import { Check, Wallet } from "lucide-react";
 import * as React from "react";
 import { Link } from "react-router-dom";
@@ -111,7 +111,7 @@ export function WalletCard() {
                   active={selected === account.id}
                   onClick={() => setSelected(account.id)}
                   label={account.name}
-                  icon={<AccountIcon slug={account.slug} icon={account.icon} size="sm" />}
+                  icon={<AccountIcon logoUrl={account.logoUrl} icon={account.icon} name={account.name} size="sm" />}
                 />
               ))}
             </div>
@@ -225,7 +225,7 @@ function AccountBreakdown({
             onClick={() => onSelect(account.id)}
             className="hover:bg-muted/50 flex w-full items-center gap-3 rounded-lg px-1.5 py-2 text-left transition-colors"
           >
-            <AccountIcon slug={account.slug} icon={account.icon} size="md" />
+            <AccountIcon logoUrl={account.logoUrl} icon={account.icon} name={account.name} size="md" />
 
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline justify-between gap-3">

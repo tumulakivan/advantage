@@ -1,11 +1,15 @@
-import { DEFAULT_SETTINGS, formatMoney, type AppSettings, type MoneyFormatOptions } from "@advantage/core";
-import { readSettings, writeSettings } from "@advantage/db";
+import { readSettings, writeSettings } from "@advantage/api-client";
+import {
+  DEFAULT_SETTINGS,
+  formatMoney,
+  type AppSettings,
+  type MoneyFormatOptions,
+} from "@advantage/core";
 import * as React from "react";
 
 import { invalidateQueries, useLiveQuery } from "@/hooks/useLiveQuery";
-import { useConnection } from "@/providers/DbProvider";
-
-const THEME_KEY = "advantage.theme";
+import { applyTheme } from "@/lib/theme";
+import { useSession } from "@/providers/SessionProvider";
 
 interface SettingsContextValue {
   settings: AppSettings;
@@ -18,37 +22,30 @@ interface SettingsContextValue {
 
 const SettingsContext = React.createContext<SettingsContextValue | null>(null);
 
-function applyTheme(theme: "dark" | "light"): void {
-  document.documentElement.classList.toggle("dark", theme === "dark");
-  try {
-    localStorage.setItem(THEME_KEY, theme);
-  } catch {
-    // Private mode: the class is still applied, the choice just will not stick.
-  }
-}
-
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const { db, status } = useConnection();
+  const { api, status } = useSession();
   const { data: settings, loading } = useLiveQuery(
-    (database) => readSettings(database),
+    (client) => readSettings(client),
     [],
     DEFAULT_SETTINGS,
   );
 
   // The stored theme wins on first paint (index.html reads it); once the
-  // database is open its value becomes the source of truth.
+  // account's settings arrive their value becomes the source of truth.
   React.useEffect(() => {
-    if (status === "ready") applyTheme(settings.theme);
+    if (status === "signed-in") applyTheme(settings.theme);
   }, [settings.theme, status]);
 
   const update = React.useCallback(
     async (patch: Partial<AppSettings>) => {
-      if (!db) return;
+      // Theme is applied before the request rather than after it: a toggle
+      // that waits on a round trip feels broken, and it is a preference, not
+      // a figure - nothing depends on it being confirmed.
       if (patch.theme) applyTheme(patch.theme);
-      await writeSettings(db, patch);
+      await writeSettings(api, patch);
       invalidateQueries();
     },
-    [db],
+    [api],
   );
 
   const value = React.useMemo<SettingsContextValue>(

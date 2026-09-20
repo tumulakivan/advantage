@@ -6,5 +6,10 @@
   "publishConfig": {
     "access": "restricted"
   },
-  "files": ["base.json", "react-app.json", "library.json"]
+  "files": [
+    "base.json",
+    "react-app.json",
+    "library.json",
+    "node.json"
+  ]
 }

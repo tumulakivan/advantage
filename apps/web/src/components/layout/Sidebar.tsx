@@ -3,6 +3,7 @@ import {
   CalendarClock,
   LayoutDashboard,
   Settings,
+  ShieldCheck,
   Tag,
   Target,
   Wallet,
@@ -12,7 +13,15 @@ import { NavLink } from "react-router-dom";
 import { Logo, Wordmark } from "@/components/brand/Logo";
 import { cn } from "@/lib/utils";
 
-const NAV = [
+export interface NavItem {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  end: boolean;
+}
+
+/** The personal app: everything a ledger needs. */
+export const NAV: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/transactions", label: "Transactions", icon: ArrowLeftRight, end: false },
   { to: "/budgets", label: "Budgets", icon: Target, end: false },
@@ -23,10 +32,18 @@ const NAV = [
 ];
 
 /**
+ * The admin app, which is one screen. An admin account administers the service
+ * and has no ledger of its own, so there is nothing else to navigate to.
+ */
+export const ADMIN_NAV: NavItem[] = [
+  { to: "/admin", label: "Admin", icon: ShieldCheck, end: false },
+];
+
+/**
  * Fixed-width dark rail, translucent hover, one accent bar on the active item.
  * The chrome stays dark in both themes so the app always reads as one product.
  */
-export function Sidebar({ storage }: { storage: "opfs" | "memory" | null }) {
+export function Sidebar({ items = NAV }: { items?: NavItem[] }) {
   return (
     <aside className="bg-sidebar text-sidebar-foreground border-sidebar-border hidden w-60 shrink-0 flex-col border-r lg:flex">
       <div className="flex h-16 items-center gap-2.5 px-5">
@@ -35,7 +52,7 @@ export function Sidebar({ storage }: { storage: "opfs" | "memory" | null }) {
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 px-3 py-2">
-        {NAV.map((item) => (
+        {items.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -66,22 +83,26 @@ export function Sidebar({ storage }: { storage: "opfs" | "memory" | null }) {
         ))}
       </nav>
 
-      <div className="border-sidebar-border space-y-2 border-t px-5 py-4">
-        <p className="text-sidebar-muted text-[11px] leading-relaxed">
-          {storage === "memory"
-            ? "Running in memory - this session will not be saved."
-            : "Stored locally in this browser. Nothing is uploaded."}
-        </p>
-      </div>
     </aside>
   );
 }
 
-/** The same nav as a horizontal strip, for narrow screens. */
-export function MobileNav() {
+/**
+ * The same nav as a horizontal strip, for narrow screens.
+ *
+ * Unlike the rail, this one follows the theme. The rail is a full-height edge
+ * and reads as structure whatever colour the page is; a dark band wedged
+ * between a white header and a white page reads as something that failed to
+ * load. So it takes the card surface and the ordinary accent, which makes it
+ * graphite with lime in the dark and white with green in the light.
+ */
+export function MobileNav({ items = NAV }: { items?: NavItem[] }) {
   return (
-    <nav className="bg-sidebar border-sidebar-border flex items-center gap-1 overflow-x-auto border-b px-3 py-2 lg:hidden">
-      {NAV.map((item) => (
+    <nav
+      data-testid="mobile-nav"
+      className="bg-card border-border flex items-center gap-1 overflow-x-auto border-b px-3 py-2 lg:hidden"
+    >
+      {items.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}
@@ -90,8 +111,8 @@ export function MobileNav() {
             cn(
               "flex shrink-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] font-semibold transition-colors",
               isActive
-                ? "bg-sidebar-active text-sidebar-primary"
-                : "text-sidebar-foreground/70 hover:bg-sidebar-accent",
+                ? "bg-primary/12 text-primary"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )
           }
         >

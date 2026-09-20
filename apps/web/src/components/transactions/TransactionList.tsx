@@ -1,10 +1,10 @@
 import { dateLabel, fullDateLabel, todayIso, type IsoDate } from "@advantage/core";
-import type { TransactionRow } from "@advantage/db";
+import type { TransactionRow } from "@advantage/api-client";
 import { ArrowLeftRight, Repeat } from "lucide-react";
 import * as React from "react";
 
 import { Amount } from "@/components/common/Amount";
-import { BrandMark } from "@/components/brand/BrandMark";
+import { SourceChip } from "@/components/transactions/SourcePicker";
 import { CategoryIcon } from "@/components/common/CategoryChip";
 import { cn } from "@/lib/utils";
 import { useSettings } from "@/providers/SettingsProvider";
@@ -67,8 +67,15 @@ export function TransactionList({
                   onClick={() => onSelect?.(row)}
                   className="hover:bg-muted/40 flex w-full items-center gap-3 px-5 py-2.5 text-left transition-colors"
                 >
-                  {row.type === "income" && row.sourceLogo ? (
-                    <BrandMark logo={row.sourceLogo} size="sm" />
+                  {row.type === "income" && row.sourceShortName ? (
+                    <SourceChip
+                      size="sm"
+                      source={{
+                        shortName: row.sourceShortName,
+                        name: row.sourceName,
+                        color: row.sourceColor,
+                      }}
+                    />
                   ) : row.type === "transfer" ? (
                     <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center rounded-lg">
                       <ArrowLeftRight className="size-3.5" />

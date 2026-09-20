@@ -101,7 +101,7 @@ describe("buildOutlook", () => {
     categoryIcon: null,
     categoryColor: null,
     accountName: null,
-    sourceLogo: null,
+    sourceColor: null,
   });
 
   const entries = [

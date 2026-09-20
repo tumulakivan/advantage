@@ -5,7 +5,7 @@ import {
   updateCategory,
   type Category,
   type CategoryNode,
-} from "@advantage/db";
+} from "@advantage/api-client";
 import { CHART_SLOTS, slotColor } from "@advantage/theme";
 import { Loader2, Plus, Tag, Trash2 } from "lucide-react";
 import * as React from "react";
@@ -38,7 +38,7 @@ import { useCategoryTree } from "@/hooks/useData";
 import { useMutation } from "@/hooks/useLiveQuery";
 import { iconFor } from "@/lib/icons";
 import { cn } from "@/lib/utils";
-import { useDb } from "@/providers/DbProvider";
+import { useApi } from "@/providers/SessionProvider";
 
 /**
  * Seven groups, each owning one chart hue, with subcategories beneath them.
@@ -112,7 +112,7 @@ function GroupCard({
   group: CategoryNode;
   onEdit: (category: Category | null, parentId: string | null) => void;
 }) {
-  const db = useDb();
+  const api = useApi();
   const { run, pending } = useMutation();
 
   return (
@@ -141,7 +141,7 @@ function GroupCard({
             variant="ghost"
             size="icon-sm"
             disabled={pending}
-            onClick={() => void run(() => archiveCategory(db, group.id))}
+            onClick={() => void run(() => archiveCategory(api, group.id))}
             title="Archive group and its subcategories"
           >
             <Trash2 className="text-destructive" />
@@ -192,7 +192,7 @@ function CategoryDialog({
   kind: CategoryKind;
   groups: CategoryNode[];
 }) {
-  const db = useDb();
+  const api = useApi();
   const { run, pending, error } = useMutation();
   const [name, setName] = React.useState("");
   const [icon, setIcon] = React.useState<string>("Tag");
@@ -224,8 +224,8 @@ function CategoryDialog({
     };
 
     const saved = await run(async () => {
-      if (category) await updateCategory(db, category.id, payload);
-      else await createCategory(db, payload);
+      if (category) await updateCategory(api, category.id, payload);
+      else await createCategory(api, payload);
       return true;
     });
     if (saved) onOpenChange(false);

@@ -12,11 +12,11 @@ import {
   updatePlanned,
   type IncomeSource,
   type PlannedRow,
-} from "@advantage/db";
+} from "@advantage/api-client";
 import { CalendarClock, Check, Loader2, Plus, Trash2, Undo2 } from "lucide-react";
 import * as React from "react";
 
-import { BrandMark } from "@/components/brand/BrandMark";
+import { SourceChip } from "@/components/transactions/SourcePicker";
 import { Amount } from "@/components/common/Amount";
 import { CategoryIcon } from "@/components/common/CategoryChip";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -48,7 +48,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useAccounts, useCategoryOptions, useIncomeSources, usePlanned } from "@/hooks/useData";
 import { useMutation } from "@/hooks/useLiveQuery";
-import { useDb } from "@/providers/DbProvider";
+import { useApi } from "@/providers/SessionProvider";
 import { cn } from "@/lib/utils";
 
 const FREQUENCY_LABELS: Record<Frequency, string> = {
@@ -235,14 +235,14 @@ function Section({
 }
 
 function PlannedRowView({ row, onEdit }: { row: PlannedRow; onEdit: () => void }) {
-  const db = useDb();
+  const api = useApi();
   const { run, pending } = useMutation();
   const overdue = (row.daysUntilDue ?? 0) < 0 && !row.postedForCurrent;
 
   return (
     <div className="flex flex-wrap items-center gap-3 px-5 py-3.5">
-      {row.type === "income" && row.sourceLogo ? (
-        <BrandMark logo={row.sourceLogo} size="md" />
+      {row.type === "income" && row.sourceName ? (
+        <SourceChip source={{ shortName: row.sourceName, name: row.name, color: row.sourceColor }} />
       ) : (
         <CategoryIcon icon={row.categoryIcon} color={row.categoryColor} size="md" />
       )}
@@ -280,7 +280,7 @@ function PlannedRowView({ row, onEdit }: { row: PlannedRow; onEdit: () => void }
             variant="outline"
             size="sm"
             disabled={pending}
-            onClick={() => void run(() => postPlanned(db, row.id))}
+            onClick={() => void run(() => postPlanned(api, row.id))}
           >
             Log it
           </Button>
@@ -291,7 +291,7 @@ function PlannedRowView({ row, onEdit }: { row: PlannedRow; onEdit: () => void }
             variant="ghost"
             size="sm"
             disabled={pending}
-            onClick={() => void run(() => unpostPlanned(db, row.id))}
+            onClick={() => void run(() => unpostPlanned(api, row.id))}
             title="Delete the record this created and mark it unpaid again"
           >
             <Undo2 />
@@ -305,7 +305,7 @@ function PlannedRowView({ row, onEdit }: { row: PlannedRow; onEdit: () => void }
           variant="ghost"
           size="icon-sm"
           disabled={pending}
-          onClick={() => void run(() => deletePlanned(db, row.id))}
+          onClick={() => void run(() => deletePlanned(api, row.id))}
           title="Delete"
         >
           <Trash2 className="text-destructive" />
@@ -337,7 +337,7 @@ function PlannedDialog({
   onOpenChange: (open: boolean) => void;
   planned: PlannedRow | null;
 }) {
-  const db = useDb();
+  const api = useApi();
   const { run, pending, error } = useMutation();
   const accounts = useAccounts().data;
   const sources = useIncomeSources().data;
@@ -407,8 +407,8 @@ function PlannedDialog({
     };
 
     const saved = await run(async () => {
-      if (planned) await updatePlanned(db, planned.id, payload);
-      else await createPlanned(db, payload);
+      if (planned) await updatePlanned(api, planned.id, payload);
+      else await createPlanned(api, payload);
       return true;
     });
     if (saved) onOpenChange(false);

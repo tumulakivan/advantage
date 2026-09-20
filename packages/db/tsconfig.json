@@ -1,4 +1,0 @@
-{
-  "extends": "@advantage/typescript-config/library.json",
-  "include": ["src/**/*.ts", "drizzle.config.ts"]
-}

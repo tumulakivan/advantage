@@ -1,5 +1,5 @@
 import { monthEnd, monthStart, type TransactionType } from "@advantage/core";
-import type { TransactionFilters, TransactionRow } from "@advantage/db";
+import type { TransactionFilters, TransactionRow } from "@advantage/api-client";
 import { Plus, Receipt, Search, X } from "lucide-react";
 import * as React from "react";
 
@@ -124,7 +124,7 @@ export function TransactionsPage() {
             />
           </div>
 
-          <div className="w-[12rem]">
+          <div className="w-full sm:w-[12rem]">
             <AccountSelect
               accounts={accounts}
               value={accountId}
@@ -134,7 +134,7 @@ export function TransactionsPage() {
           </div>
 
           {type !== "transfer" ? (
-            <div className="w-[14rem]">
+            <div className="w-full sm:w-[14rem]">
               <CategorySelect
                 options={categoryOptions}
                 value={categoryId}
@@ -152,7 +152,7 @@ export function TransactionsPage() {
           ) : null}
         </div>
 
-        <div className="border-border mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 border-t pt-3">
+        <div className="border-border mt-3 grid grid-cols-2 gap-x-6 gap-y-2 border-t pt-3 sm:flex sm:flex-wrap sm:items-center sm:gap-y-1">
           <Summary label="Records" value={String(rows.length)} />
           <Summary label="Income" node={<Amount minor={totals.income} direction="in" signed={false} />} />
           <Summary label="Spending" node={<Amount minor={totals.expense} direction="out" signed={false} />} />

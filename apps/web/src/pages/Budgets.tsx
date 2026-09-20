@@ -1,5 +1,5 @@
 import { formatPercent, type BudgetVerdict } from "@advantage/core";
-import { deleteBudget, upsertBudget, type BudgetRow } from "@advantage/db";
+import { deleteBudget, upsertBudget, type BudgetRow } from "@advantage/api-client";
 import { Loader2, Plus, Target, Trash2, TriangleAlert } from "lucide-react";
 import * as React from "react";
 
@@ -27,7 +27,7 @@ import { useBudgets, useCategoryOptions } from "@/hooks/useData";
 import { useMutation } from "@/hooks/useLiveQuery";
 import { useMonth } from "@/hooks/useMonth";
 import { cn } from "@/lib/utils";
-import { useDb } from "@/providers/DbProvider";
+import { useApi } from "@/providers/SessionProvider";
 import { useSettings } from "@/providers/SettingsProvider";
 
 export function BudgetsPage() {
@@ -174,7 +174,7 @@ function verdictBadge(verdict: BudgetVerdict) {
 }
 
 function BudgetRowView({ budget, onEdit }: { budget: BudgetRow; onEdit: () => void }) {
-  const db = useDb();
+  const api = useApi();
   const { run, pending } = useMutation();
   const { settings } = useSettings();
 
@@ -238,7 +238,7 @@ function BudgetRowView({ budget, onEdit }: { budget: BudgetRow; onEdit: () => vo
           variant="ghost"
           size="icon-sm"
           disabled={pending}
-          onClick={() => void run(() => deleteBudget(db, budget.id))}
+          onClick={() => void run(() => deleteBudget(api, budget.id))}
           title="Remove budget"
         >
           <Trash2 className="text-destructive" />
@@ -259,7 +259,7 @@ function BudgetDialog({
   budget: BudgetRow | null;
   month: string;
 }) {
-  const db = useDb();
+  const api = useApi();
   const { run, pending, error } = useMutation();
   const options = useCategoryOptions("expense").data;
   const [categoryId, setCategoryId] = React.useState<string | null>(null);
@@ -275,7 +275,7 @@ function BudgetDialog({
     event.preventDefault();
     if (!amountMinor) return;
     const saved = await run(() =>
-      upsertBudget(db, { categoryId, amountMinor, startMonth: month }),
+      upsertBudget(api, { categoryId, amountMinor, startMonth: month }),
     );
     if (saved !== null) onOpenChange(false);
   }

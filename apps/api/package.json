@@ -1,0 +1,43 @@
+{
+  "name": "@advantage/api",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate": "dotenv -e ../../.env -- prisma migrate dev",
+    "db:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "db:generate": "prisma generate",
+    "db:studio": "dotenv -e ../../.env -- prisma studio",
+    "db:reset": "dotenv -e ../../.env -- prisma migrate reset",
+    "import:backup": "tsx --env-file-if-exists=../../.env scripts/import-backup.ts",
+    "clean": "rimraf dist .turbo node_modules",
+    "smoke": "node scripts/smoke.mjs",
+    "db:seed:catalog": "tsx --env-file-if-exists=../../.env scripts/seed-catalog.ts",
+    "admin": "tsx --env-file-if-exists=../../.env scripts/admin-account.ts"
+  },
+  "dependencies": {
+    "@advantage/core": "^0.1.0",
+    "@prisma/client": "^6.19.0",
+    "better-auth": "^1.4.5",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.13.5",
+    "dotenv-cli": "^10.0.0",
+    "prisma": "^6.19.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

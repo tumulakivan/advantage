@@ -1,0 +1,343 @@
+// adVantage - PostgreSQL schema.
+//
+// Conventions that hold across every table here:
+//
+// - Every application row carries `userId`. It is in the first migration on
+//   purpose: retrofitting tenancy is far harder than starting with it, and a
+//   missing WHERE clause leaks someone's salary and debts.
+// - ids are uuid text, still generated client-side. They cost nothing and are
+//   what keeps optimistic writes - and a local-first sync layer later - open.
+// - money is `*MinorUnits`: an integer count of centavos, always a positive
+//   magnitude. Direction lives in `Transaction.type`, so no query has to trust
+//   a sign. Never make these numeric or float; you would lose centavos quietly.
+// - dates are `YYYY-MM-DD` text and months are `YYYY-MM`, timestamps are ISO
+//   strings. Lexicographic order is chronological order and nothing drifts
+//   across timezones. Keeping the storage shape also keeps the backup file
+//   byte-compatible with the SQLite build this replaces.
+// - deletes are soft (`archivedAt`) for anything a record can point at, so
+//   history never loses its labels. Deleting a *user* is the exception: it
+//   cascades to everything, because "delete my account" has to mean it.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---- identity ---------------------------------------------------------------
+// Better Auth owns these four tables. They live in this schema rather than a
+// separate store so `userId` is a real foreign key and deletion can cascade.
+
+model User {
+  id            String   @id
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions     Session[]
+  authAccounts AuthAccount[]
+
+  accounts        Account[]
+  categories      Category[]
+  incomeSources   IncomeSource[]
+  transactions    Transaction[]
+  budgets         Budget[]
+  plannedPayments PlannedPayment[]
+  settings        Setting[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// Credentials and linked providers. Named `AuthAccount` because `Account` is
+/// already taken by the thing this app is actually about - a wallet.
+model AuthAccount {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_accounts")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verifications")
+}
+
+// ---- the ledger -------------------------------------------------------------
+
+model Account {
+  id                  String  @id
+  slug                String?
+  name                String
+  type                String  @default("cash")
+  icon                String  @default("Wallet")
+  color               String?
+  openingBalanceMinor Int     @default(0)
+  currency            String  @default("PHP")
+  excludeFromTotals   Boolean @default(false)
+  sortOrder           Int     @default(0)
+  archivedAt          String?
+  createdAt           String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  transactions   Transaction[]    @relation("transactionAccount")
+  incoming       Transaction[]    @relation("transactionToAccount")
+  plannedPayments PlannedPayment[]
+  incomeSources  IncomeSource[]
+
+  // Slugs are how a seeded account finds its logo, and how an import matches
+  // one. They are unique per person, not globally - two users both have a
+  // "gcash".
+  @@unique([userId, slug])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Category {
+  id        String  @id
+  slug      String?
+  name      String
+  kind      String  @default("expense")
+  icon      String  @default("Tag")
+  /// Chart slot token. Null on children: they inherit the parent hue.
+  color     String?
+  isSystem  Boolean @default(false)
+  sortOrder Int     @default(0)
+  archivedAt String?
+  createdAt String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  parentId String?
+  parent   Category?  @relation("categoryParent", fields: [parentId], references: [id], onDelete: Cascade)
+  children Category[] @relation("categoryParent")
+
+  transactions    Transaction[]
+  budgets         Budget[]
+  plannedPayments PlannedPayment[]
+  incomeSources   IncomeSource[]
+
+  @@unique([userId, slug])
+  @@index([userId])
+  @@index([userId, kind])
+  @@index([parentId])
+  @@map("categories")
+}
+
+model IncomeSource {
+  id        String  @id
+  slug      String
+  name      String
+  shortName String
+  /// Asset key the web app maps to a bundled logo file.
+  logo      String?
+  color     String?
+  sortOrder Int     @default(0)
+  archivedAt String?
+  createdAt String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  defaultCategoryId String?
+  defaultCategory   Category? @relation(fields: [defaultCategoryId], references: [id], onDelete: SetNull)
+
+  defaultAccountId String?
+  defaultAccount   Account? @relation(fields: [defaultAccountId], references: [id], onDelete: SetNull)
+
+  transactions    Transaction[]
+  plannedPayments PlannedPayment[]
+
+  @@unique([userId, slug])
+  @@index([userId])
+  @@map("income_sources")
+}
+
+model Transaction {
+  id String @id
+  type String
+  /// Positive magnitude in centavos. Direction comes from `type`.
+  amountMinor Int
+  date        String
+  payee       String?
+  note        String?
+  createdAt   String
+  updatedAt   String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation("transactionAccount", fields: [accountId], references: [id], onDelete: Cascade)
+
+  /// Destination account - transfers only.
+  toAccountId String?
+  toAccount   Account? @relation("transactionToAccount", fields: [toAccountId], references: [id], onDelete: SetNull)
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  incomeSourceId String?
+  incomeSource   IncomeSource? @relation(fields: [incomeSourceId], references: [id], onDelete: SetNull)
+
+  /// Set when the record was posted from a planned payment.
+  plannedPaymentId String?
+  plannedPayment   PlannedPayment? @relation(fields: [plannedPaymentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([userId, type, date])
+  @@index([userId, accountId])
+  @@index([userId, categoryId])
+  @@index([userId, incomeSourceId])
+  @@index([userId, plannedPaymentId])
+  @@index([toAccountId])
+  @@map("transactions")
+}
+
+model Budget {
+  id String @id
+  amountMinor Int
+  period      String  @default("monthly")
+  /// First month the budget applies to, YYYY-MM.
+  startMonth  String
+  rollover    Boolean @default(false)
+  archivedAt  String?
+  createdAt   String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Null means an overall spending limit rather than a per-category one.
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, categoryId])
+  @@map("budgets")
+}
+
+model PlannedPayment {
+  id String @id
+  name        String
+  type        String  @default("expense")
+  amountMinor Int
+  frequency   String  @default("monthly")
+  /// The date the schedule counts from; the due day is read off it.
+  anchorDate  String
+  endDate     String?
+  note        String?
+  /// Last date a record was posted for this schedule.
+  lastPostedDate String?
+  active         Boolean @default(true)
+  createdAt      String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  incomeSourceId String?
+  incomeSource   IncomeSource? @relation(fields: [incomeSourceId], references: [id], onDelete: SetNull)
+
+  transactions Transaction[]
+
+  @@index([userId])
+  @@index([userId, active])
+  @@map("planned_payments")
+}
+
+/// Key/value so adding a setting never needs a migration.
+model Setting {
+  key   String
+  value String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, key])
+  @@map("settings")
+}
+
+// ---- the shared catalog ------------------------------------------------------
+
+/// A known account everyone can add to their own wallet, curated by an admin.
+///
+/// The only table here with no `userId`, and the only one an ordinary request
+/// cannot write to. It holds brand assets rather than anybody's money: one
+/// curated copy of the GCash mark instead of every user uploading their own.
+///
+/// A user's `Account.slug` matching an entry's `slug` is what gives that wallet
+/// its logo, which is why renaming an account keeps its mark.
+model AccountCatalogEntry {
+  id   String @id
+  slug String @unique
+  name String
+  type String @default("bank")
+  /// Lucide glyph, used whenever there is no logo image.
+  icon String @default("Landmark")
+
+  /// The image itself. Small, rarely changed, and read far more than written -
+  /// so it lives in the database, where it is covered by the same backup as
+  /// everything else rather than being a directory someone has to remember.
+  logoData Bytes?
+  logoType String?
+  /// Bumped on every upload, so a cached logo is replaced rather than stale.
+  logoVersion String?
+
+  sortOrder  Int     @default(0)
+  archivedAt String?
+  createdAt  String
+  updatedAt  String
+
+  @@index([archivedAt])
+  @@map("account_catalog")
+}

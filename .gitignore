@@ -8,7 +8,6 @@ dist/
 .DS_Store
 Thumbs.db
 *.log
-~$*.xlsx
 .vite/
 coverage/
 
@@ -16,9 +15,9 @@ coverage/
 apps/web/e2e/screenshots/
 
 # Personal financial data. The app ships with neutral defaults; real figures
-# live here and are loaded through Settings > Import a file.
+# are loaded through Settings > Import a file.
 entry/
 data/private/
+initial_data/
 *.sqlite3
 advantage-backup-*.json
-

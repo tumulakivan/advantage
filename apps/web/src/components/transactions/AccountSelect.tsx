@@ -1,4 +1,4 @@
-import type { AccountWithBalance } from "@advantage/db";
+import type { AccountWithBalance } from "@advantage/api-client";
 
 import { AccountIcon } from "@/components/brand/AccountIcon";
 import {
@@ -34,7 +34,7 @@ export function AccountSelect({
       <SelectTrigger id={id} aria-label="Account">
         {selected ? (
           <span className="flex min-w-0 items-center gap-2">
-            <AccountIcon slug={selected.slug} icon={selected.icon} size="sm" />
+            <AccountIcon logoUrl={selected.logoUrl} icon={selected.icon} name={selected.name} size="sm" />
             <span className="truncate font-medium">{selected.name}</span>
           </span>
         ) : (
@@ -46,7 +46,7 @@ export function AccountSelect({
         {visible.map((account) => {
           return (
             <SelectItem key={account.id} value={account.id}>
-              <AccountIcon slug={account.slug} icon={account.icon} size="sm" />
+              <AccountIcon logoUrl={account.logoUrl} icon={account.icon} name={account.name} size="sm" />
               <span className="font-medium">{account.name}</span>
               <span className="num text-muted-foreground ml-auto pl-4 text-[12px]">
                 {money(account.balanceMinor, { hideCents: true })}

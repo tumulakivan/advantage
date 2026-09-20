@@ -1,11 +1,16 @@
 /**
  * End-to-end smoke test.
  *
- * Runs the built app in a real Chrome, because the parts most likely to break
- * cannot be reached from Node: the SQLite worker, the OPFS storage handshake,
- * migrations, the seed, and a full round trip through the entry form. Point it
- * at an already-running server with BASE_URL, or let it serve ./dist itself.
+ * Runs the built app in a real Chrome against a running API, because the parts
+ * most likely to break cannot be reached from Node: sign-up, the session
+ * cookie travelling on every request, the first-run seed, and a full round trip
+ * through the entry form.
  *
+ * The API has to be up, and this origin has to be in its WEB_ORIGIN list -
+ * otherwise the browser's own CORS check refuses every call, which is exactly
+ * what it is there for.
+ *
+ *   npm run db:up && npm run dev -w @advantage/api   # in another terminal
  *   node e2e/smoke.mjs
  *   BASE_URL=http://localhost:5173 node e2e/smoke.mjs   # against `npm run dev`
  *   HEADLESS=false node e2e/smoke.mjs                   # watch it happen
@@ -21,6 +26,9 @@ import puppeteer from "puppeteer-core";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
 const SHOTS = path.join(HERE, "screenshots");
+
+/** What the stubbed fact service answers with, so the header line is assertable. */
+const FACT = "A duck's quack does not echo, and no one knows why.";
 
 const CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
@@ -61,10 +69,14 @@ function serve(root) {
     createReadStream(file).pipe(response);
   });
 
+  // A fixed port on `localhost`, not a random one on `127.0.0.1`: the API only
+  // accepts credentialed requests from the origins it was told about, and an
+  // origin it has never heard of cannot be one of them.
+  const port = Number(process.env.E2E_PORT ?? 4173);
+
   return new Promise((resolve) => {
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address();
-      resolve({ url: `http://127.0.0.1:${port}`, close: () => server.close() });
+    server.listen(port, "127.0.0.1", () => {
+      resolve({ url: `http://localhost:${port}`, close: () => server.close() });
     });
   });
 }
@@ -109,6 +121,18 @@ const scrollToOutlook = (page) => scrollToHeading(page, "Outlook");
 
 function countBars(page) {
   return page.$$eval(".recharts-bar-rectangle path", (nodes) => nodes.length);
+}
+
+/**
+ * Wait until the Outlook list is showing the timeframe now selected. The
+ * caption is local state and the rows are a round trip, so they no longer
+ * arrive together - counting too early counts the previous window.
+ */
+function waitForOutlook(page) {
+  return page.waitForFunction(
+    () => !document.body.innerText.toLowerCase().includes("working it out"),
+    { timeout: 20_000 },
+  );
 }
 
 /** How many rows the Outlook breakdown list is showing. */
@@ -246,6 +270,26 @@ async function main() {
   const page = await browser.newPage();
   await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
 
+  /**
+   * The header fact comes from uselessfacts.jsph.pl. Serve it here rather than
+   * reaching across the internet for it: a suite that goes red because someone
+   * else's server is down teaches people to ignore red, and a canned answer
+   * also makes the line assertable.
+   */
+  await page.setRequestInterception(true);
+  page.on("request", (request) => {
+    if (!request.url().includes("uselessfacts")) {
+      void request.continue();
+      return;
+    }
+    void request.respond({
+      status: 200,
+      contentType: "application/json",
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ text: FACT }),
+    });
+  });
+
   const consoleErrors = [];
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
@@ -255,19 +299,30 @@ async function main() {
   try {
     await page.goto(target, { waitUntil: "networkidle2", timeout: 60_000 });
 
-    // 1. The database opens, migrates and seeds, then the shell renders.
+    // 1. Nothing is reachable without a session; sign up, and the first-run
+    //    seed lands behind it.
+    await page.waitForSelector("#auth-email", { timeout: 30_000 });
+    check("an unauthenticated visit lands on sign-in", page.url().includes("/signin"));
+
+    const email = `smoke+${Date.now()}@example.test`;
+    await clickText(page, "a", "Create an account");
+    await page.waitForSelector("#auth-name", { timeout: 10_000 });
+    await page.type("#auth-name", "Smoke Test");
+    await page.type("#auth-email", email);
+    await page.type("#auth-password", "correct-horse-battery");
+    await clickText(page, "button", "Create account");
+
     await waitForText(page, "net worth", 60_000);
-    check("database opens and the dashboard renders", true);
+    check("signing up seeds a ledger and renders the dashboard", true);
+    check("the session shows who is signed in", (await textOf(page)).includes(email));
 
-    const storage = (await textOf(page)).includes("in memory only") ? "memory" : "opfs";
-    check("persistent OPFS storage", storage === "opfs", `storage=${storage}`);
-
+    // The cards fill from separate requests now, so the frame arriving is not
+    // the same event as the figures arriving. Wait for the data itself.
+    await waitForText(page, "electricity", 30_000);
     const body = await textOf(page);
     check("seeded planned payments show up", body.includes("electricity"));
-    check(
-      "both income sources are listed",
-      body.includes("mentis") && body.includes("live luxe"),
-    );
+    check("the generic income source is listed", body.includes("salary"));
+    check("and no one else's employer is", !body.includes("mentis") && !body.includes("live luxe"));
     check("dark graphite background", (await page.evaluate(() =>
       getComputedStyle(document.body).backgroundColor,
     )) === "rgb(22, 24, 27)");
@@ -276,7 +331,67 @@ async function main() {
       return styles.getPropertyValue("--primary").trim();
     })) === "#a3e635");
 
+    const headerFact = await page.evaluate(
+      () =>
+        [...document.querySelectorAll("header p")].find((node) =>
+          node.innerText.includes("duck"),
+        )?.innerText ?? null,
+    );
+    check("the header carries a fact", headerFact === FACT, headerFact);
+
     await page.screenshot({ path: path.join(SHOTS, "01-dashboard-empty.png") });
+
+    // 1b. A new account holds cash alone. The rest come from the shared
+    //     catalog, which is also where the artwork lives now.
+    await page.goto(`${target}/accounts`, { waitUntil: "networkidle2" });
+    await waitForText(page, "net worth", 20_000);
+
+    const startingWallets = await page.$$eval("img[alt], span", () => 0);
+    void startingWallets;
+    check(
+      "a new account starts with cash alone",
+      (await textOf(page)).includes("cash") && !(await textOf(page)).includes("maribank"),
+    );
+
+    for (const wanted of ["Maribank", "GCash"]) {
+      await clickText(page, "button", "Add account");
+      await page.waitForFunction(
+        () => document.body.innerText.includes("Pick one of the accounts we know about"),
+        { timeout: 15_000 },
+      );
+
+      if (wanted === "Maribank") {
+        // The marks are fetched from the API, so the dialog's text arrives
+        // before its images do - wait for them to decode rather than counting
+        // whatever happens to be ready.
+        await page
+          .waitForFunction(
+            () =>
+              [...document.querySelectorAll("[role=dialog] img")].filter(
+                (node) => node.complete && node.naturalWidth > 0,
+              ).length >= 3,
+            { timeout: 15_000 },
+          )
+          .catch(() => {});
+
+        const marks = await page.$$eval("[role=dialog] img", (nodes) =>
+          nodes.filter((node) => node.naturalWidth > 0).length,
+        );
+        check("the catalog offers accounts with real logos", marks >= 3, `${marks} logos loaded`);
+        await page.screenshot({ path: path.join(SHOTS, "01b-account-catalog.png") });
+      }
+
+      await clickText(page, "[role=dialog] button", wanted);
+      await waitForText(page, wanted, 15_000);
+    }
+
+    await page.goto(`${target}/accounts`, { waitUntil: "networkidle2" });
+    await waitForText(page, "maribank", 20_000);
+    const walletsAfter = await textOf(page);
+    check("adding from the catalog works", walletsAfter.includes("maribank") && walletsAfter.includes("gcash"));
+
+    await page.goto(`${target}/`, { waitUntil: "networkidle2" });
+    await waitForText(page, "electricity", 30_000);
 
     // 2. Log an expense through the real form.
     await clickText(page, "button", "New record");
@@ -291,12 +406,15 @@ async function main() {
     await waitForText(page, "installment", 15_000);
     check("an expense saves and appears on the dashboard", true);
 
+    // The breakdown legend is drawn by Recharts once it has measured its
+    // container, a frame or two after the figures land.
+    await waitForText(page, "loans & installments", 15_000);
     const afterExpense = await textOf(page);
     check("expense total picks it up", afterExpense.includes("2,500.00"));
     check("the breakdown names the group", afterExpense.includes("loans & installments"));
     await page.screenshot({ path: path.join(SHOTS, "03-dashboard-with-expense.png") });
 
-    // 3. Log income, which must offer the two businesses.
+    // 3. Log income. The picker offers whoever this person says pays them.
     await clickText(page, "button", "New record");
     await page.waitForSelector("#amount", { timeout: 10_000 });
     await clickText(page, "button", "Income");
@@ -305,15 +423,16 @@ async function main() {
     const sourceCards = await page.$$eval("[role=radiogroup][aria-label='Income source'] [role=radio]", (nodes) =>
       nodes.map((node) => node.innerText.split("\n")[0]),
     );
-    check("income form offers exactly the two businesses", sourceCards.length === 2, sourceCards.join(" / "));
+    check("the income picker offers the seeded source", sourceCards.length === 1, sourceCards.join(" / "));
 
     const logos = await page.$$eval(
       "[role=radiogroup][aria-label='Income source'] img",
-      (nodes) => nodes.map((node) => node.naturalWidth > 0),
+      (nodes) => nodes.length,
     );
-    check("both logos load", logos.length === 2 && logos.every(Boolean));
+    // Text only: no image anywhere in the picker, by design.
+    check("and carries no logos at all", logos === 0, `${logos} images`);
 
-    await clickText(page, "[role=radio]", "Live Luxe");
+    await clickText(page, "[role=radio]", "Salary");
     await page.type("#amount", "30000");
     await page.screenshot({ path: path.join(SHOTS, "04-income-form.png") });
 
@@ -373,7 +492,7 @@ async function main() {
       ["planned", "Planned payments"],
       ["accounts", "Net worth"],
       ["categories", "Categories"],
-      ["settings", "Data and storage"],
+      ["settings", "Your data"],
     ]) {
       await page.goto(`${target}/${route}`, { waitUntil: "networkidle2" });
       await waitForText(page, marker);
@@ -410,7 +529,7 @@ async function main() {
       const worthBefore = await readNetWorth(page);
 
       await page.goto(`${target}/settings`, { waitUntil: "networkidle2" });
-      await waitForText(page, "data and storage", 30_000);
+      await waitForText(page, "your data", 30_000);
       const upload = await page.$("input[type=file]");
       await upload.uploadFile(planFile);
       await waitForText(page, "planned items", 30_000);
@@ -448,10 +567,13 @@ async function main() {
     await page.goto(`${target}/`, { waitUntil: "networkidle2" });
     await waitForText(page, "wallet", 30_000);
 
+    // By now the plan file has been imported, and it carries an accounts block -
+    // so the wallet holds what was added from the catalog plus what the plan
+    // brought with it.
     const walletText = await textOf(page);
     check(
-      "wallet seeds the five real accounts",
-      ["maribank", "unionbank", "gcash", "wise", "cash"].every((name) =>
+      "the wallet holds every account in play",
+      ["cash", "maribank", "unionbank", "gcash", "wise"].every((name) =>
         walletText.includes(name),
       ),
     );
@@ -550,6 +672,7 @@ async function main() {
       outlookText.includes("planned") && outlookText.includes("logged"));
     check("the planned purchase shows up in the window", outlookText.includes("laptop"));
 
+    await waitForOutlook(page);
     const rangeItems = await countOutlookItems(page);
     check("the range lists the scheduled items", rangeItems > 10, `${rangeItems} items`);
 
@@ -562,6 +685,7 @@ async function main() {
     // Year view: same module, wider span, monthly buckets.
     await clickText(page, "button", "Year");
     await waitForText(page, "2026, month by month", 20_000);
+    await waitForOutlook(page);
     const yearItems = await countOutlookItems(page);
     check("switching to Year re-scopes the list", yearItems !== rangeItems, `${yearItems} items`);
 
@@ -586,9 +710,13 @@ async function main() {
 
     await page.screenshot({ path: path.join(SHOTS, "12-outlook-year.png") });
 
-    // Month view: follows the month selector, day-level buckets.
+    // Month view: follows the month selector, day-level buckets. The caption
+    // is local state and the rows are a round trip, so waiting for the caption
+    // is not waiting for the list - wait for the window to stop saying it is
+    // still working it out.
     await clickText(page, "button", "Month");
     await waitForText(page, "day by day", 20_000);
+    await waitForOutlook(page);
     const monthItems = await countOutlookItems(page);
     check("switching to Month narrows the list", monthItems < yearItems, `${monthItems} items`);
     check(
@@ -632,15 +760,111 @@ async function main() {
       timeout: 10_000,
     });
 
-    // 9. Data survives a reload, which is the whole point of OPFS.
+    // 9. The session and the records both survive a reload. The records are on
+    //    the server, so this is really asking whether the cookie came back.
     await page.goto(target, { waitUntil: "networkidle2" });
     await waitForText(page, "net worth", 60_000);
     const reloaded = await textOf(page);
+    check("the session survives a reload", !page.url().includes("/signin"));
+    check("records survive a reload", reloaded.includes("installment"));
+
+    // 9b. There are two apps behind the sign-in and an account is in exactly
+    //     one. This one is not in ADMIN_EMAILS, so it is in the personal app.
+    check("a normal user gets no Admin nav item", !(await textOf(page)).includes("admin"));
+
+    await page.goto(`${target}/admin`, { waitUntil: "networkidle2" });
+    await waitForText(page, "net worth", 20_000);
     check(
-      "records survive a reload",
-      reloaded.includes("installment"),
-      storage === "opfs" ? "" : "in-memory fallback, not expected to persist",
+      "and is sent back to their own dashboard from /admin",
+      !(await textOf(page)).includes("account catalog"),
+      page.url(),
     );
+
+    // 9c. The narrow layout. A page wider than the viewport is the failure
+    //     that actually happens - one control group that will not wrap pushes
+    //     the whole document sideways, and it is invisible at desktop width.
+    await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1, isMobile: true });
+
+    for (const route of ["/", "/transactions", "/budgets", "/planned", "/accounts", "/settings"]) {
+      await page.goto(`${target}${route}`, { waitUntil: "networkidle2" });
+      await pause(1200);
+
+      const width = await page.evaluate(() => ({
+        doc: document.documentElement.clientWidth,
+        scroll: document.documentElement.scrollWidth,
+      }));
+
+      check(
+        `${route} does not scroll sideways on a phone`,
+        width.scroll <= width.doc + 1,
+        `${width.scroll} wide in ${width.doc}`,
+      );
+    }
+
+    // The rail is hidden and the strip takes over below the large breakpoint.
+    // There are two navs in the document - select the one under test.
+    const narrowChrome = await page.evaluate(() => {
+      const nav = document.querySelector("[data-testid=mobile-nav]");
+      const aside = document.querySelector("aside");
+      return {
+        navVisible: Boolean(nav && nav.getBoundingClientRect().height > 0),
+        railVisible: Boolean(aside && aside.getBoundingClientRect().width > 0),
+      };
+    });
+    check(
+      "the nav strip replaces the rail on a phone",
+      narrowChrome.navVisible && !narrowChrome.railVisible,
+      JSON.stringify(narrowChrome),
+    );
+
+    /**
+     * The strip follows the theme rather than staying dark. A dark band wedged
+     * between a white header and a white page reads as something that failed
+     * to load, which is the bug this is here to keep fixed.
+     */
+    const navLuminance = () =>
+      page.evaluate(() => {
+        const nav = document.querySelector("[data-testid=mobile-nav]");
+        const [r, g, b] = (getComputedStyle(nav).backgroundColor.match(/[0-9.]+/g) ?? [])
+          .slice(0, 3)
+          .map(Number);
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      });
+
+    const setTheme = async (wanted) => {
+      const now = await page.evaluate(() =>
+        document.documentElement.classList.contains("dark") ? "dark" : "light",
+      );
+      if (now === wanted) return;
+      await clickText(page, "button", "Toggle theme");
+      await page.waitForFunction(
+        (w) => document.documentElement.classList.contains("dark") === (w === "dark"),
+        { timeout: 10_000 },
+        wanted,
+      );
+      await pause(250);
+    };
+
+    await setTheme("light");
+    const navLight = await navLuminance();
+    check("the nav strip is light in light mode", navLight > 0.8, `luminance ${navLight.toFixed(2)}`);
+
+    await setTheme("dark");
+    const navDark = await navLuminance();
+    check("and graphite in dark mode", navDark < 0.25, `luminance ${navDark.toFixed(2)}`);
+
+    await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
+    await page.goto(`${target}/`, { waitUntil: "networkidle2" });
+    await waitForText(page, "net worth", 20_000);
+
+    // 10. Signing out ends it, and the app goes back behind the gate.
+    await clickText(page, "button", "Sign out");
+    await page.waitForFunction(() => location.pathname.includes("/signin"), { timeout: 15_000 });
+    check("signing out returns to sign-in", true);
+
+    await page.goto(`${target}/transactions`, { waitUntil: "networkidle2" });
+    await page.waitForSelector("#auth-email", { timeout: 15_000 });
+    check("a signed-out visit cannot reach a screen", page.url().includes("/signin"));
 
     const realErrors = consoleErrors.filter(
       (message) => !message.includes("favicon") && !message.includes("sourcemap"),

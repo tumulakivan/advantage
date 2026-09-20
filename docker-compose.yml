@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: advantage-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: advantage
+      POSTGRES_PASSWORD: advantage
+      POSTGRES_DB: advantage
+    ports:
+      # 5433 on the host, so an existing local Postgres on 5432 is left alone.
+      - "5433:5432"
+    volumes:
+      - advantage-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U advantage -d advantage"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  advantage-pgdata:

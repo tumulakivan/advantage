@@ -1,4 +1,4 @@
-import type { CategoryOption } from "@advantage/db";
+import type { CategoryOption } from "@advantage/api-client";
 
 import { CategoryIcon } from "@/components/common/CategoryChip";
 import {

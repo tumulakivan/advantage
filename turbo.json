@@ -1,7 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
-  "globalDependencies": ["**/.env.*local"],
+  "globalDependencies": ["**/.env.*local", ".env"],
+  "globalEnv": ["DATABASE_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "WEB_ORIGIN", "PORT"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -27,10 +28,6 @@
     "test": {
       "dependsOn": ["^build"],
       "outputs": []
-    },
-    "db:generate": {
-      "cache": false,
-      "outputs": ["migrations/**"]
     },
     "clean": {
       "cache": false

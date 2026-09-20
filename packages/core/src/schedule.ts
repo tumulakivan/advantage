@@ -151,7 +151,8 @@ export interface OutlookEntry {
   categoryIcon: string | null;
   categoryColor: string | null;
   accountName: string | null;
-  sourceLogo: string | null;
+  /** The source's chart slot, so an income row is marked without a logo. */
+  sourceColor: string | null;
 }
 
 export interface OutlookBucket {

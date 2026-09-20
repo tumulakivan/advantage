@@ -1,23 +1,19 @@
-import gcashLogo from "@/assets/brands/gcash.png";
-import maribankLogo from "@/assets/brands/maribank.png";
-import unionbankLogo from "@/assets/brands/unionbank.png";
-import wiseLogo from "@/assets/brands/wise.png";
 import { iconFor } from "@/lib/icons";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
  * Account marks are square app icons that carry their own background - GCash
  * blue, UnionBank orange, Wise green - so they are drawn full bleed in a fixed
- * rounded box rather than on the white chip the income wordmarks need. Same box
- * for every account, logo or not, so a row of them lines up.
+ * rounded box. Same box for every account, logo or not, so a row of them lines
+ * up.
+ *
+ * The artwork used to be bundled with the app and keyed by slug, which meant
+ * adding one was a deploy. It now comes from the shared catalog as an ordinary
+ * image URL, so an admin can add an account on a Tuesday afternoon and everyone
+ * has it. A wallet the catalog does not know about falls back to its lucide
+ * glyph, which is also what every custom account gets.
  */
-const LOGOS: Record<string, { src: string; alt: string }> = {
-  gcash: { src: gcashLogo, alt: "GCash" },
-  maribank: { src: maribankLogo, alt: "Maribank" },
-  unionbank: { src: unionbankLogo, alt: "UnionBank" },
-  wise: { src: wiseLogo, alt: "Wise" },
-};
-
 const BOX = {
   sm: "size-7 rounded-md",
   md: "size-9 rounded-lg",
@@ -27,21 +23,23 @@ const BOX = {
 const GLYPH = { sm: "size-3.5", md: "size-4", lg: "size-5" } as const;
 
 export function AccountIcon({
-  slug,
+  logoUrl,
   icon,
+  name,
   size = "md",
   className,
 }: {
-  /** The account slug; seeded accounts carry a logo, user-made ones do not. */
-  slug?: string | null;
-  /** Lucide name, used when there is no logo for this account. */
+  /** Catalog logo path, as the API returns it. Null for a custom account. */
+  logoUrl?: string | null;
+  /** Lucide name, used when there is no logo. */
   icon?: string | null;
+  name?: string | null;
   size?: keyof typeof BOX;
   className?: string;
 }) {
-  const logo = slug ? LOGOS[slug] : undefined;
+  const src = api.assetUrl(logoUrl);
 
-  if (!logo) {
+  if (!src) {
     const Icon = iconFor(icon);
     return (
       <span
@@ -58,14 +56,10 @@ export function AccountIcon({
 
   return (
     <img
-      src={logo.src}
-      alt={logo.alt}
+      src={src}
+      alt={name ?? ""}
       loading="lazy"
       className={cn("shrink-0 object-cover ring-1 ring-black/10", BOX[size], className)}
     />
   );
-}
-
-export function hasAccountLogo(slug?: string | null): boolean {
-  return Boolean(slug && slug in LOGOS);
 }

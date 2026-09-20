@@ -16,21 +16,23 @@ export default defineConfig({
   },
 
   /**
-   * The workspace packages are consumed as TypeScript source (no build step),
-   * so they must not be pre-bundled - the SQLite worker inside @advantage/db
-   * needs Vite to see `new Worker(new URL(...))` in source form. sqlite-wasm is
-   * excluded because its Emscripten glue resolves the .wasm relative to itself.
+   * The workspace packages are consumed as TypeScript source with no build
+   * step, so they must not be pre-bundled from `node_modules`.
    */
   optimizeDeps: {
-    exclude: ["@advantage/db", "@advantage/core", "@advantage/theme", "@sqlite.org/sqlite-wasm"],
-  },
-
-  worker: {
-    format: "es",
+    exclude: ["@advantage/api-client", "@advantage/core", "@advantage/theme"],
   },
 
   server: {
     port: 5173,
+    /**
+     * Fail rather than slide to 5174. The API only accepts credentialed
+     * requests from the origins in its WEB_ORIGIN list, so a silent port
+     * fallback does not produce a working app on a different port - it
+     * produces one where every request is blocked by CORS, which is a much
+     * harder thing to recognise than "port already in use".
+     */
+    strictPort: true,
     fs: {
       allow: [workspaceRoot],
     },

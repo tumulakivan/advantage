@@ -1,0 +1,10 @@
+{
+  "extends": "@advantage/typescript-config/node.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "scripts", "tsup.config.ts"]
+}

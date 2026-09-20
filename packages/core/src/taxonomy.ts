@@ -77,33 +77,27 @@ export interface SeedIncomeSource {
   slug: string;
   name: string;
   shortName: string;
-  /** Asset key resolved by the web app to a bundled logo. */
-  logo: string;
   color: string;
   defaultCategory: string;
 }
 
 /**
- * The two income sources, hard-seeded because the income form offers exactly
- * this choice. They are rows, not an enum, so a third one can be added without
- * a migration.
+ * What a new account starts with: one generic source, so the income form always
+ * has something to pick and a first-run user is never stuck.
+ *
+ * It is an example to rename, not a fixture. Income sources are rows rather
+ * than an enum precisely so that everyone can describe their own arrangement -
+ * one employer, three clients, a rental and a side business - without a
+ * migration. They are text only: whose payroll it is is the user's business,
+ * and a logo for it would be ours to host and moderate.
  */
 export const SEED_INCOME_SOURCES: SeedIncomeSource[] = [
   {
-    slug: "mentis",
-    name: "Mentis Global",
-    shortName: "Mentis",
-    logo: "mentis",
+    slug: "salary",
+    name: "Salary",
+    shortName: "Salary",
     color: "chart-1",
     defaultCategory: "income-salary",
-  },
-  {
-    slug: "live-luxe",
-    name: "Live Luxe Rentals AU",
-    shortName: "Live Luxe",
-    logo: "live-luxe",
-    color: "chart-3",
-    defaultCategory: "income-rental",
   },
 ];
 
@@ -116,18 +110,42 @@ export interface SeedAccount {
 }
 
 /**
- * The wallets a new database starts with. A seeded slug is also how the web app
- * finds an account's logo, so renaming an account keeps its mark.
+ * The wallet a new account starts with: cash, and nothing else.
  *
- * Every balance starts at zero. Load your own from Settings -> Import a file,
- * using a plan file with an `accounts` block - see `data/example-plan.json`.
+ * Everyone has cash. Nobody has every bank, and seeding five of them means a
+ * new user's first task is deleting four accounts that were never theirs.
+ * The rest are added from the catalog - see `SEED_ACCOUNT_CATALOG`.
  */
 export const SEED_ACCOUNTS: SeedAccount[] = [
-  { slug: "maribank", name: "Maribank", type: "bank", icon: "Landmark", openingBalanceMinor: 0 },
-  { slug: "unionbank", name: "UnionBank", type: "bank", icon: "Landmark", openingBalanceMinor: 0 },
-  { slug: "gcash", name: "GCash", type: "ewallet", icon: "Smartphone", openingBalanceMinor: 0 },
-  { slug: "wise", name: "Wise", type: "ewallet", icon: "Landmark", openingBalanceMinor: 0 },
   { slug: "cash", name: "Cash", type: "cash", icon: "Banknote", openingBalanceMinor: 0 },
+];
+
+export interface CatalogEntrySeed {
+  slug: string;
+  name: string;
+  type: AccountType;
+  /** Lucide glyph, used whenever the entry has no logo image. */
+  icon: string;
+  /** File in `icons/`, uploaded into the catalog by the seed script. */
+  logoFile?: string;
+}
+
+/**
+ * The shared catalog of known accounts, which everyone picks from and only an
+ * admin edits.
+ *
+ * This is the one piece of the app that is not per-user. A logo is a brand
+ * asset: hosting one copy that an admin curates is the difference between
+ * "GCash looks right for everybody" and every user uploading their own
+ * screenshot of it. An account slug is still how a wallet finds its mark, so
+ * renaming an account keeps it.
+ */
+export const SEED_ACCOUNT_CATALOG: CatalogEntrySeed[] = [
+  { slug: "cash", name: "Cash", type: "cash", icon: "Banknote" },
+  { slug: "maribank", name: "Maribank", type: "bank", icon: "Landmark", logoFile: "maribank.png" },
+  { slug: "unionbank", name: "UnionBank", type: "bank", icon: "Landmark", logoFile: "unionbank.png" },
+  { slug: "gcash", name: "GCash", type: "ewallet", icon: "Smartphone", logoFile: "gcash.png" },
+  { slug: "wise", name: "Wise", type: "ewallet", icon: "Landmark", logoFile: "wise.png" },
 ];
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {

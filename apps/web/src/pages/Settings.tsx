@@ -1,26 +1,31 @@
-import { DEFAULT_SETTINGS } from "@advantage/core";
 import {
+  archiveIncomeSource,
+  createIncomeSource,
   databaseStats,
+  deleteMyAccount,
   exportBackup,
   importBackup,
   importPlan,
   importRecords,
+  resetLedger,
   updateIncomeSource,
   type IncomeSource,
-} from "@advantage/db";
+} from "@advantage/api-client";
+import { DEFAULT_SETTINGS } from "@advantage/core";
 import {
-  Database,
   Download,
-  HardDriveDownload,
   Loader2,
   Moon,
+  Plus,
+  ShieldCheck,
   Sun,
+  Trash2,
   TriangleAlert,
   Upload,
 } from "lucide-react";
 import * as React from "react";
 
-import { BrandMark } from "@/components/brand/BrandMark";
+import { SourceChip } from "@/components/transactions/SourcePicker";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,7 +50,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useIncomeSources } from "@/hooks/useData";
 import { invalidateQueries, useLiveQuery, useMutation } from "@/hooks/useLiveQuery";
-import { useConnection, useDb } from "@/providers/DbProvider";
+import { useApi, useSession } from "@/providers/SessionProvider";
 import { useSettings } from "@/providers/SettingsProvider";
 
 const CURRENCIES = ["PHP", "AUD", "USD", "EUR", "SGD", "JPY", "GBP"];
@@ -58,7 +63,7 @@ export function SettingsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Settings"
-        description="Everything here is stored in this browser. There is no account and no server."
+        description="How the app reads, who it belongs to, and how to get your data back out."
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -134,6 +139,7 @@ export function SettingsPage() {
       </div>
 
       <DataCard />
+      <AccountCard />
     </div>
   );
 }
@@ -141,6 +147,9 @@ export function SettingsPage() {
 function IncomeSourcesCard() {
   const { data: sources } = useIncomeSources();
   const [editing, setEditing] = React.useState<IncomeSource | null>(null);
+  const [adding, setAdding] = React.useState(false);
+  const api = useApi();
+  const { run, pending } = useMutation();
 
   return (
     <Card>
@@ -148,17 +157,29 @@ function IncomeSourcesCard() {
         <div>
           <CardTitle>Income sources</CardTitle>
           <CardDescription>
-            The choice the income form offers. Logos are bundled with the app, not uploaded.
+            Whoever pays you - an employer, a client, a tenant. The income form offers these.
           </CardDescription>
         </div>
+        <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
+          <Plus />
+          Add
+        </Button>
       </CardHeader>
+
       <CardContent className="space-y-2">
+        {sources.length === 0 ? (
+          <p className="text-muted-foreground text-[13px] leading-relaxed">
+            No income sources yet. Add one and the income form will ask which of them a payment
+            came from.
+          </p>
+        ) : null}
+
         {sources.map((source) => (
           <div
             key={source.id}
             className="border-border flex items-center gap-3 rounded-lg border px-3 py-2.5"
           >
-            <BrandMark logo={source.logo} size="md" />
+            <SourceChip source={source} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-[13.5px] font-bold">{source.shortName}</p>
               <p className="text-muted-foreground truncate text-[12px]">{source.name}</p>
@@ -166,14 +187,34 @@ function IncomeSourcesCard() {
             <Button variant="ghost" size="sm" onClick={() => setEditing(source)}>
               Rename
             </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title={`Remove ${source.shortName}`}
+              disabled={pending}
+              className="text-destructive hover:bg-destructive/10"
+              onClick={() => void run(() => archiveIncomeSource(api, source.id))}
+            >
+              <Trash2 />
+              <span className="sr-only">Remove {source.shortName}</span>
+            </Button>
           </div>
         ))}
+
+        <p className="text-muted-foreground text-[12px] leading-relaxed">
+          Removing one leaves the income already logged against it alone - the records keep saying
+          where they came from.
+        </p>
       </CardContent>
 
       <SourceDialog
         source={editing}
-        open={Boolean(editing)}
-        onOpenChange={(open) => !open && setEditing(null)}
+        open={Boolean(editing) || adding}
+        onOpenChange={(open) => {
+          if (open) return;
+          setEditing(null);
+          setAdding(false);
+        }}
       />
     </Card>
   );
@@ -184,27 +225,34 @@ function SourceDialog({
   open,
   onOpenChange,
 }: {
+  /** Null while adding a new one. */
   source: IncomeSource | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const db = useDb();
-  const { run, pending } = useMutation();
+  const api = useApi();
+  const { run, pending, error } = useMutation();
   const [name, setName] = React.useState("");
   const [shortName, setShortName] = React.useState("");
 
   React.useEffect(() => {
-    if (!source) return;
-    setName(source.name);
-    setShortName(source.shortName);
-  }, [source]);
+    if (!open) return;
+    setName(source?.name ?? "");
+    setShortName(source?.shortName ?? "");
+  }, [open, source]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!source || !name.trim()) return;
-    const result = await run(() =>
-      updateIncomeSource(db, source.id, { name: name.trim(), shortName: shortName.trim() }),
-    );
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    const result = await run(async () => {
+      const short = shortName.trim() || trimmed;
+      if (source) await updateIncomeSource(api, source.id, { name: trimmed, shortName: short });
+      else await createIncomeSource(api, { name: trimmed, shortName: short });
+      return true;
+    });
+
     if (result !== null) onOpenChange(false);
   }
 
@@ -213,19 +261,29 @@ function SourceDialog({
       <DialogContent>
         <form onSubmit={submit} className="space-y-5">
           <DialogHeader>
-            <DialogTitle>Rename income source</DialogTitle>
-            <DialogDescription>Existing records keep pointing at it.</DialogDescription>
+            <DialogTitle>{source ? "Rename income source" : "Add an income source"}</DialogTitle>
+            <DialogDescription>
+              {source
+                ? "Existing records keep pointing at it."
+                : "Income can then be logged against it, and the dashboard splits by source."}
+            </DialogDescription>
           </DialogHeader>
 
           <Field label="Full name" htmlFor="source-name">
             <Input
               id="source-name"
               value={name}
+              autoFocus
+              placeholder="Acme Corp, Unit 4B tenant, freelance"
               onChange={(event) => setName(event.target.value)}
             />
           </Field>
 
-          <Field label="Short name" htmlFor="source-short" hint="Used in tight spaces.">
+          <Field
+            label="Short name"
+            htmlFor="source-short"
+            hint="Used in tight spaces. Left blank, it follows the full name."
+          >
             <Input
               id="source-short"
               value={shortName}
@@ -233,13 +291,15 @@ function SourceDialog({
             />
           </Field>
 
+          {error ? <p className="text-destructive text-[13px] font-medium">{error}</p> : null}
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={pending || !name.trim()}>
               {pending ? <Loader2 className="animate-spin" /> : null}
-              Save
+              {source ? "Save" : "Add source"}
             </Button>
           </DialogFooter>
         </form>
@@ -257,46 +317,33 @@ function download(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+const STAT_LABELS: Record<string, string> = {
+  transactions: "Records",
+  accounts: "Accounts",
+  categories: "Categories",
+  budgets: "Budgets",
+  planned: "Planned",
+  incomeSources: "Income sources",
+};
+
 function DataCard() {
-  const db = useDb();
-  const { connection } = useConnection();
+  const api = useApi();
   const { run, pending, error } = useMutation();
   const [message, setMessage] = React.useState<string | null>(null);
   const [confirmReset, setConfirmReset] = React.useState(false);
   const fileInput = React.useRef<HTMLInputElement>(null);
 
-  const { data: stats } = useLiveQuery((database) => databaseStats(database), [], {});
-  const STAT_LABELS: Record<string, string> = {
-    transactions: "Records",
-    accounts: "Accounts",
-    categories: "Categories",
-    budgets: "Budgets",
-    planned: "Planned",
-    incomeSources: "Income sources",
-  };
-  const durable = connection?.storage === "opfs";
+  const { data: stats } = useLiveQuery((client) => databaseStats(client), [], {});
   const stamp = new Date().toISOString().slice(0, 10);
 
   async function exportJson() {
     await run(async () => {
-      const backup = await exportBackup(db);
+      const backup = await exportBackup(api);
       download(
         new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }),
         `advantage-backup-${stamp}.json`,
       );
       setMessage("Backup downloaded.");
-    });
-  }
-
-  async function exportSqlite() {
-    if (!connection) return;
-    await run(async () => {
-      const bytes = await connection.bridge.exportBytes();
-      download(
-        new Blob([bytes as unknown as BlobPart], { type: "application/vnd.sqlite3" }),
-        `advantage-${stamp}.sqlite3`,
-      );
-      setMessage("Database file downloaded. Open it with any SQLite tool.");
     });
   }
 
@@ -310,10 +357,10 @@ function DataCard() {
       const format = (payload as { format?: string }).format;
 
       if (format === "advantage-backup") {
-        await importBackup(db, payload);
+        await importBackup(api, payload);
         setMessage("Backup restored.");
       } else if (format === "advantage-plan") {
-        const summary = await importPlan(db, payload);
+        const summary = await importPlan(api, payload);
         setMessage(
           `Loaded ${summary.created} planned items` +
             (summary.removed ? `, replacing ${summary.removed}` : "") +
@@ -323,7 +370,7 @@ function DataCard() {
             " Nothing counts against your balances until you log it.",
         );
       } else if (format === "advantage-records") {
-        const summary = await importRecords(db, payload);
+        const summary = await importRecords(api, payload);
         setMessage(
           `Imported ${summary.inserted} records` +
             (summary.skipped ? `, skipped ${summary.skipped}` : "") +
@@ -339,9 +386,8 @@ function DataCard() {
   }
 
   async function reset() {
-    if (!connection) return;
     await run(async () => {
-      await connection.bridge.wipe();
+      await resetLedger(api);
       setConfirmReset(false);
       setMessage("Everything was erased. Reload to start fresh.");
     });
@@ -351,28 +397,18 @@ function DataCard() {
     <Card>
       <CardHeader>
         <div>
-          <CardTitle>Data and storage</CardTitle>
+          <CardTitle>Your data</CardTitle>
           <CardDescription>
-            SQLite compiled to WebAssembly, running in a worker in this tab.
+            Stored on the server, under your account and nobody else's.
           </CardDescription>
         </div>
-        <Badge variant={durable ? "good" : "warning"}>
-          <Database />
-          {durable ? "Saved to this browser" : "In memory only"}
+        <Badge variant="good">
+          <ShieldCheck />
+          Yours to take
         </Badge>
       </CardHeader>
 
       <CardContent className="space-y-5">
-        {!durable ? (
-          <p className="border-warning/40 bg-warning/10 text-warning flex gap-2 rounded-lg border px-3 py-2.5 text-[13px] leading-relaxed">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-            <span>
-              This browser would not give the app persistent storage, so records live in memory and
-              disappear on reload. Download a backup before you close the tab.
-            </span>
-          </p>
-        ) : null}
-
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {Object.entries(stats).map(([label, count]) => (
             <div key={label} className="bg-muted/50 rounded-lg px-3 py-2">
@@ -388,10 +424,6 @@ function DataCard() {
           <Button variant="outline" onClick={() => void exportJson()} disabled={pending}>
             <Download />
             Download backup
-          </Button>
-          <Button variant="outline" onClick={() => void exportSqlite()} disabled={pending}>
-            <HardDriveDownload />
-            Download .sqlite3
           </Button>
           <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={pending}>
             <Upload />
@@ -429,8 +461,9 @@ function DataCard() {
           {" "}<code className="bg-muted rounded px-1 py-0.5 text-[11px]">amount</code>,
           {" "}<code className="bg-muted rounded px-1 py-0.5 text-[11px]">date</code> and
           {" "}<code className="bg-muted rounded px-1 py-0.5 text-[11px]">category</code> entries -
-          the shape a spreadsheet export lands in. Default settings: {DEFAULT_SETTINGS.currency},
-          {" "}{DEFAULT_SETTINGS.locale}.
+          the shape a spreadsheet export lands in. The backup file is the same format the
+          offline version wrote, so one exported from there imports here unchanged. Default
+          settings: {DEFAULT_SETTINGS.currency}, {DEFAULT_SETTINGS.locale}.
         </p>
       </CardContent>
 
@@ -439,8 +472,9 @@ function DataCard() {
           <DialogHeader>
             <DialogTitle>Erase everything?</DialogTitle>
             <DialogDescription>
-              Every record, account, budget and planned payment in this browser is deleted, and the
-              app starts over with the default categories. This cannot be undone.
+              Every record, account, budget and planned payment on your account is deleted, and
+              the app starts over with the default categories. Your sign-in stays. This cannot be
+              undone - download a backup first if you are unsure.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -452,6 +486,99 @@ function DataCard() {
               Erase everything
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+/**
+ * Deleting the account genuinely deletes it: everything cascades from the user
+ * row. Worth offering plainly rather than burying, since the app now holds
+ * someone's financial history on a machine they do not own.
+ */
+function AccountCard() {
+  const api = useApi();
+  const { user, refresh } = useSession();
+  const { run, pending, error } = useMutation();
+  const [confirming, setConfirming] = React.useState(false);
+  const [typed, setTyped] = React.useState("");
+
+  async function remove() {
+    await run(async () => {
+      await deleteMyAccount(api);
+      setConfirming(false);
+      refresh();
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Account</CardTitle>
+          <CardDescription>Signed in as {user?.email}.</CardDescription>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        <p className="text-muted-foreground text-[13px] leading-relaxed">
+          Deleting your account removes the sign-in and every record behind it. There is no
+          recovery and no copy kept - download a backup first if you want to keep any of it.
+        </p>
+
+        <Button
+          variant="ghost"
+          className="text-destructive hover:bg-destructive/10"
+          onClick={() => {
+            setTyped("");
+            setConfirming(true);
+          }}
+          disabled={pending}
+        >
+          <TriangleAlert />
+          Delete my account
+        </Button>
+
+        {error ? <p className="text-destructive text-[13px] font-medium">{error}</p> : null}
+      </CardContent>
+
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void remove();
+            }}
+            className="space-y-5"
+          >
+            <DialogHeader>
+              <DialogTitle>Delete your account?</DialogTitle>
+              <DialogDescription>
+                This deletes your sign-in and every record, account, budget and planned payment
+                that belongs to it. It cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+
+            <Field label="Type DELETE to confirm" htmlFor="confirm-delete">
+              <Input
+                id="confirm-delete"
+                value={typed}
+                autoComplete="off"
+                onChange={(event) => setTyped(event.target.value)}
+              />
+            </Field>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
+                Keep my account
+              </Button>
+              <Button type="submit" variant="destructive" disabled={pending || typed !== "DELETE"}>
+                {pending ? <Loader2 className="animate-spin" /> : null}
+                Delete everything
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </Card>

@@ -27,7 +27,7 @@ export function KpiTile({
   className?: string;
 }) {
   return (
-    <Card className={cn("relative overflow-hidden p-5", className)}>
+    <Card className={cn("relative overflow-hidden p-4 sm:p-5", className)}>
       {accent ? (
         <span
           aria-hidden="true"
@@ -36,12 +36,12 @@ export function KpiTile({
         />
       ) : null}
 
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-muted-foreground text-[11px] font-bold tracking-wide uppercase">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-muted-foreground min-w-0 text-[11px] font-bold tracking-wide uppercase">
           {label}
         </p>
-        <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
-          <Icon className="size-4" />
+        <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center rounded-lg sm:size-8">
+          <Icon className="size-3.5 sm:size-4" />
         </span>
       </div>
 
@@ -49,10 +49,10 @@ export function KpiTile({
         minor={minor}
         direction={direction}
         signed={false}
-        className="mt-3 block text-2xl font-extrabold tracking-tight"
+        className="mt-2.5 block text-xl font-extrabold tracking-tight sm:mt-3 sm:text-2xl"
       />
 
-      {footer ? <div className="mt-2.5">{footer}</div> : null}
+      {footer ? <div className="mt-2">{footer}</div> : null}
     </Card>
   );
 }

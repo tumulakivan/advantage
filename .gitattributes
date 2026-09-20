@@ -1,0 +1,9 @@
+# Normalise line endings. The port touched some files with tools that wrote
+# LF where the originals had CRLF; without this the first commit would be a
+# whole-file diff on every one of them.
+* text=auto eol=lf
+*.png binary
+*.webp binary
+*.woff2 binary
+*.pdf binary
+*.sqlite3 binary

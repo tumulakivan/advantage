@@ -32,11 +32,14 @@ export function ChartCard({
   return (
     <Card className={cn("flex flex-col", className)}>
       <CardHeader>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <CardTitle>{title}</CardTitle>
           {description ? <CardDescription>{description}</CardDescription> : null}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        {/* Wraps rather than shrink-0: the Outlook controls are wider than a
+            phone, and a header that cannot yield pushes the whole page
+            sideways. */}
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
           {actions}
           {table ? (
             <Button

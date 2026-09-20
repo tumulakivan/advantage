@@ -1,14 +1,19 @@
-import type { IncomeSource } from "@advantage/db";
+import type { IncomeSource } from "@advantage/api-client";
+import { slotColor } from "@advantage/theme";
 import { Check } from "lucide-react";
 
-import { BrandMark } from "@/components/brand/BrandMark";
 import { cn } from "@/lib/utils";
 
 /**
- * Income always answers "from where" before anything else, and with only two
- * payers the answer belongs on screen as two tappable cards rather than hidden
- * in a dropdown. Each carries its own logo on a light chip, since both marks
- * are dark ink and would vanish on graphite.
+ * Income always answers "from where" before anything else, so the answer
+ * belongs on screen as tappable cards rather than hidden in a dropdown.
+ *
+ * Text only, on purpose. These are whoever pays you - an employer, a client, a
+ * tenant - and that is the user's business, not a brand we should be hosting a
+ * logo for. What keeps the row scannable instead is the initial on a chip in
+ * the source's own chart colour, which is the same colour it carries in the
+ * income breakdown, so the card and the chart agree without anyone being asked
+ * to remember which is which.
  */
 export function SourcePicker({
   sources,
@@ -41,7 +46,7 @@ export function SourcePicker({
                 : "border-border bg-background hover:border-input hover:bg-accent/40",
             )}
           >
-            <BrandMark logo={source.logo} size="md" />
+            <SourceChip source={source} />
 
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13.5px] font-bold">{source.shortName}</span>
@@ -59,5 +64,34 @@ export function SourcePicker({
         );
       })}
     </div>
+  );
+}
+
+/** The initial, tinted by the source's chart slot. Same box as an account mark. */
+export function SourceChip({
+  source,
+  size = "md",
+  className,
+}: {
+  /** Whatever the row carries. Joined rows leave any of these null. */
+  source: { shortName?: string | null; name?: string | null; color?: string | null };
+  size?: "sm" | "md";
+  className?: string;
+}) {
+  const color = slotColor(source.color ?? undefined);
+  const label = (source.shortName || source.name || "?").trim().slice(0, 1).toUpperCase();
+
+  return (
+    <span
+      aria-hidden="true"
+      style={{ backgroundColor: `color-mix(in oklab, ${color} 18%, transparent)`, color }}
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-lg font-extrabold",
+        size === "sm" ? "size-7 text-[11px]" : "size-9 text-[13px]",
+        className,
+      )}
+    >
+      {label}
+    </span>
   );
 }
