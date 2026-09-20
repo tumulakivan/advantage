@@ -5,8 +5,7 @@ live in PostgreSQL behind an Express API; each account sees its own ledger and
 nobody else's, and Settings will hand all of it back as a file whenever you
 ask.
 
-Built because [Wallet by BudgetBakers](https://budgetbakers.com/en/products/wallet/features/)
-charges a subscription for a spreadsheet replacement.
+Built because..... I wanted to see if I could finally afford a gaming PC?
 
 ```
 npm run setup
