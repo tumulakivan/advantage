@@ -25,9 +25,39 @@ const schema = z.object({
    * the right trade.
    */
   ADMIN_EMAILS: z.string().default(""),
+
+  /**
+   * How mail leaves the service. `dev` prints it and files it away, and is the
+   * default everywhere except production; `resend` sends it for real.
+   *
+   * Sign-in depends on this now - nobody can sign in without a verification
+   * link - so production refuses to start without a real transport rather
+   * than boot into an app nobody can get into.
+   */
+  MAIL_TRANSPORT: z.enum(["dev", "resend"]).optional(),
+  /** `Name <address@your-verified-domain>`. The domain must be verified with the provider. */
+  MAIL_FROM: z.string().optional(),
+  RESEND_API_KEY: z.string().optional(),
 });
 
-const parsed = schema.safeParse(process.env);
+const checked = schema.superRefine((value, ctx) => {
+  const problem = (path: string, message: string) =>
+    ctx.addIssue({ code: "custom", path: [path], message });
+
+  if (value.NODE_ENV === "production" && value.MAIL_TRANSPORT !== "resend") {
+    problem(
+      "MAIL_TRANSPORT",
+      'must be "resend" in production - the "dev" transport prints reset links to a log instead of sending them',
+    );
+  }
+
+  if (value.MAIL_TRANSPORT === "resend") {
+    if (!value.RESEND_API_KEY) problem("RESEND_API_KEY", "is required when MAIL_TRANSPORT is resend");
+    if (!value.MAIL_FROM) problem("MAIL_FROM", "is required when MAIL_TRANSPORT is resend");
+  }
+});
+
+const parsed = checked.safeParse(process.env);
 
 if (!parsed.success) {
   const lines = parsed.error.issues.map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`);

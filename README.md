@@ -186,6 +186,83 @@ npm run db:migrate     # prisma migrate dev, against the compose database
 
 Commit the generated SQL in `apps/api/prisma/migrations`.
 
+## Accounts and email
+
+Anyone can sign up, and nobody can sign in until they have proved the mailbox.
+That one rule closes the two things an open sign-up form invites - an account
+made with someone else's address, and an admin address claimed by whoever gets
+there first - and it is what lets a password reset be trusted to reach the
+person it names.
+
+| Flow | What happens |
+| --- | --- |
+| **Sign up** | Email, name, and the password twice (8 characters or more; checked in the browser for a clear message, and again by the server, which is what actually enforces it). It creates the account but **no session**, and emails a confirmation link that works for 24 hours. |
+| **Confirm** | Opening the link confirms the address and signs the person in, then lands them in the app. A link that has expired, been used, or been tampered with lands on a page that says so and offers another. |
+| **Sign in, unconfirmed** | A correct password on an unconfirmed account is refused, says why, and emails a fresh link. A *wrong* password never sends anything, so the form cannot be used to mail strangers. |
+| **Forgot password** | Emails a link that works **once**, for an hour. Choosing a new password ends every other session on the account - a reset is often the answer to a stolen password, so the thief's login has to die with it - and also confirms the address, since reading the email proved it. |
+
+The screens never say whether an address has an account. Asking for a reset
+answers in the same words either way; signing up with an address that is taken
+looks identical to signing up with a new one, and the real owner gets an email
+saying they already have an account. That trades a slightly wordier flow for a
+sign-up form that cannot be used to look people up.
+
+Two things follow from that rule that are easy to miss:
+
+- **There is no session cookie cache.** Better Auth can trust a signed copy of the
+  session for five minutes to save one lookup per request, and for those five
+  minutes a revoked session would still work - which is exactly the window a
+  password reset exists to close. The browser test caught this: the old session
+  was still answering 200 after a reset. Every request now checks the database.
+- **Sessions of unconfirmed accounts are ended when the API starts.** Otherwise an
+  account made before this rule existed - including one made with somebody
+  else's address - would keep a valid login for the rest of its 30 days.
+
+### Mail
+
+| Variable | |
+| --- | --- |
+| `MAIL_TRANSPORT` | `dev` (the default outside production) or `resend`. |
+| `MAIL_FROM` | `adVantage <no-reply@your-domain>`. The domain must be verified with the provider. |
+| `RESEND_API_KEY` | Required for `resend`. |
+
+In development **nothing is sent.** Each message is printed in the API terminal,
+so the link is one copy away, and appended to `.mail/outbox.jsonl` (gitignored),
+which is how the smoke tests click the links a real inbox would have received.
+It is a file rather than an HTTP route on purpose: a route that hands out other
+people's reset links is one wrong `NODE_ENV` away from an account takeover.
+
+**Production refuses to start** unless `MAIL_TRANSPORT=resend` with a key and a
+sender, because sign-in now depends on mail arriving and an app nobody can get
+into should fail at boot rather than at the first sign-up.
+
+Resend is called over HTTPS rather than SMTP because the free web tiers that make
+hosting this cheap block outbound SMTP ports. Its free plan (3,000 a month, 100
+a day) only delivers to addresses other than your own once you have verified a
+sending domain, so **going public needs a domain you control.** Another provider
+is one file implementing `Mailer` in `apps/api/src/mail/`, and one line choosing
+it in `index.ts`.
+
+### Accounts that existed before this
+
+An account created before the rule is unconfirmed, so it is signed out the next
+time the API starts and cannot sign back in until it is confirmed. Signing in
+sends it a fresh link (in development, look in the API terminal). If the mail
+cannot do the job, an operator can confirm an account directly:
+
+```
+npm run user:verify -- --email someone@example.com
+```
+
+That skips the proof a mailbox would have given, and says so when it runs. It is
+a tool for the person with the database, not something the app exposes.
+
+In production, the built-in rate limiter is on: three reset or confirmation
+requests a minute per visitor and five sign-ups a minute, so the endpoints that
+send mail cannot be used to spend a free tier's daily quota or to bury someone's
+inbox. Better Auth reads the client address from `X-Forwarded-For`, so behind a
+reverse proxy make sure it is forwarded, or every visitor shares one allowance.
+
 ## Admin
 
 Whoever is listed in `ADMIN_EMAILS` gets a different app, not an extra screen.
@@ -237,14 +314,16 @@ just an account whose address is on the list.
    Admin: admin@advantage.com
    ```
 
-The address can be **made up**. There is no email verification and no
-deliverability check anywhere - it is an identifier, not a mailbox, and nothing
-is ever sent to it. If you would rather it could not collide with a real
-domain, the ones reserved for exactly this are `example.com` and anything under
-`.test` or `.invalid`: `admin@advantage.test` is as valid here as
-`admin@advantage.com`. A plus-address on a mailbox you own -
-`you+admin@gmail.com` - is the other good option, and the only one that keeps
-working if email verification is ever turned on.
+The address can be **made up.** `npm run admin` creates the account already
+confirmed and sends nothing, so it never needs to receive mail - and because
+ordinary sign-ups cannot sign in without their mailbox, nobody can take an admin
+address by registering it first. If you would rather it could not collide with a
+real domain, the ones reserved for exactly this are `example.com` and anything
+under `.test` or `.invalid`: `admin@advantage.test` is as valid here as
+`admin@advantage.com`. The catch with an invented address is **Forgot password**:
+the link would go nowhere. A plus-address on a mailbox you own -
+`you+admin@gmail.com` - is the option that keeps it working, and `npm run admin`
+remains the way back in either case.
 
 **The address has to be separate from the one you track your own money with**,
 because an admin account cannot do both. Put your own address on that list and
@@ -286,11 +365,10 @@ no screen, no file and no command that can show you an existing one, which is
 the property you want. You set it with `npm run admin`, and you keep it in a
 password manager.
 
-There is no password reset in the app yet, because no transactional sender is
-wired and a reset mail that never arrives is worse than none. For an ordinary
-account that is survivable - the owner signs up again. For the only admin it
-would mean losing the ability to curate the catalog with no way back, which is
-why `npm run admin` can reset the password directly against the database.
+Ordinary accounts have **Forgot password**, by email. An admin on an invented
+address cannot use it, and losing the only admin password would mean losing the
+ability to curate the catalog with no way back - which is why `npm run admin`
+can set a new one directly against the database.
 
 Two decisions are worth stating plainly.
 
@@ -442,20 +520,27 @@ npm run smoke                     # the API and then the built app in real Chrom
 
 - `packages/core` — 32 tests. Money parsing and formatting, month arithmetic,
   recurrence, breakdown folding, budget pace. Unchanged from the offline build.
-- `apps/api` — 45 tests against real Postgres, real migrations, real Prisma:
-  seeding, joins, derived balances, the analytics aggregates, budgets against
-  subcategories, posting and un-posting a planned payment, the outlook
+- `apps/api` — 54 tests. 45 run against real Postgres, real migrations, real
+  Prisma: seeding, joins, derived balances, the analytics aggregates, budgets
+  against subcategories, posting and un-posting a planned payment, the outlook
   projection, backup and import, and tenant isolation. They create their own
-  throwaway accounts and delete them afterwards.
-- `apps/api/scripts/smoke.mjs` — 97 checks over HTTP against a running service:
-  sign-up, the first-run seed, the whole ledger, the account catalog, the admin
+  throwaway accounts and delete them afterwards. The other 9 cover the email
+  templates - including a display name that tries to inject markup.
+- `apps/api/scripts/smoke.mjs` — 98 checks over HTTP against a running service
+  (130 with the admin half): sign-up and the confirmation link, an unconfirmed
+  account being refused, forgot password end to end - single-use links, old
+  sessions ended, an unknown address answered in the same words as a real one -
+  the first-run seed, the whole ledger, the account catalog, the admin
   surface from both sides - including every ledger route refusing an admin - and
   the isolation model end to end, such as one account restoring an empty backup
   being unable to wipe another. The admin half
   needs `ADMIN_EMAILS` to contain `admin@example.test`, and says so and skips if
   it does not.
-- `apps/web/e2e/smoke.mjs` — 77 checks driving the built app in Chrome: sign-up,
-  the session cookie surviving a reload, an expense and an income through the
+- `apps/web/e2e/smoke.mjs` — 111 checks driving the built app in Chrome: sign-up
+  with the password twice, the "check your email" step, an unconfirmed sign-in
+  being stopped, a broken link explaining itself, the real link landing in the
+  app, forgot and reset password through to signing in with the new one, the
+  session cookie surviving a reload, an expense and an income through the
   real forms, the cash flow bars pointing the right way, a plan file importing
   without moving net worth, Outlook in all three timeframes, the wallet with
   uniformly sized marks, every route, sign-out, and a clean console. The last
@@ -479,6 +564,11 @@ Nothing here is scale engineering, because at this size none of it needs to be.
 - Set `NODE_ENV=production`, which is what turns on secure, `SameSite=None`
   cookies — the API and the app are different origins.
 - Any managed Postgres works. The compose file is for development.
+- Set `MAIL_TRANSPORT=resend`, `RESEND_API_KEY` and `MAIL_FROM`. The service will
+  not start without them, and the sender's domain has to be verified with Resend
+  before it can reach anyone but you - see [Accounts and email](#accounts-and-email).
+- Do not set `ADMIN_PASSWORD` on a deployed service. Create the admin once with
+  `npm run admin`.
 - Take a backup, restore it into a scratch database, and confirm the data is
   there before anyone else depends on it. An untested backup is not a backup.
 
@@ -492,8 +582,6 @@ Nothing below is built yet; the schema already has room for most of it.
 
 - **Row-level security**, so the application-level scoping is the fast path
   rather than the only defence.
-- **Email verification and password reset**, on a transactional sender's free
-  tier. Better Auth already has the hooks; there is nowhere to send mail yet.
 - **Optimistic writes** where the lag is most obvious — adding a record, logging
   a planned payment. Client-generated UUIDs are kept for exactly this.
 - **A payday-based month.** `monthStartDay` exists and defaults to 1, but every

@@ -23,6 +23,13 @@ import { adminEmailList, isAdminEmail } from "../src/env";
  * account the service already trusts rather than a way to mint one. That also
  * catches the likeliest mistake - running it before setting the variable.
  *
+ * The account it makes is already email-verified, and nothing is sent. Whoever
+ * runs this has the database and the .env, which is a stronger claim than a
+ * mailbox, and the address is often made up and could not receive a link. It
+ * also means claiming an admin address by signing up for it is no longer a way
+ * in: an ordinary sign-up cannot sign in without the mailbox, and running this
+ * afterwards takes the account over.
+ *
  * Passwords are hashed with scrypt by Better Auth and never stored in readable
  * form, here or anywhere else. Nothing can show you an existing one. A
  * generated password is printed exactly once, by this script, and then it is
@@ -97,6 +104,11 @@ async function main(): Promise<number> {
   if (existing) {
     const credential = existing.accounts.find((account) => account.providerId === "credential");
 
+    if (!existing.user.emailVerified) {
+      await ctx.internalAdapter.updateUser(existing.user.id, { emailVerified: true });
+      console.log(`Marked ${email} as verified.`);
+    }
+
     /**
      * On almost every start the stored hash already matches, and the honest
      * answer is to do nothing. Worth checking, because the alternative is a
@@ -114,8 +126,21 @@ async function main(): Promise<number> {
     await ctx.internalAdapter.updatePassword(existing.user.id, await ctx.password.hash(password));
     console.log(`Set a new password for ${email}.`);
   } else {
-    await auth.api.signUpEmail({
-      body: { email, password, name: values.name ?? "adVantage admin" },
+    // The two rows a sign-up would write, minus the verification mail it would
+    // also send.
+    const user = await ctx.internalAdapter.createUser(
+      {
+        email,
+        name: values.name ?? "adVantage admin",
+        emailVerified: true,
+      },
+      { method: "email-password" },
+    );
+    await ctx.internalAdapter.linkAccount({
+      userId: user.id,
+      providerId: "credential",
+      accountId: user.id,
+      password: await ctx.password.hash(password),
     });
     console.log(`Created ${email}.`);
   }

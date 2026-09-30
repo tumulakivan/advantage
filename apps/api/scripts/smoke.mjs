@@ -41,8 +41,23 @@ function makeClient() {
   // cached session - so this is a jar, not a single value.
   const jar = new Map();
 
-  return async function call(method, path, body) {
-    const cookie = [...jar].map(([name, value]) => `${name}=${value}`).join("; ");
+  const cookieHeader = () => [...jar].map(([name, value]) => `${name}=${value}`).join("; ");
+
+  function absorb(response) {
+    for (const entry of response.headers.getSetCookie?.() ?? []) {
+      const [pair, ...attributes] = entry.split(";");
+      const index = pair.indexOf("=");
+      const name = pair.slice(0, index).trim();
+      const value = pair.slice(index + 1);
+
+      const expired = attributes.some((a) => /^\s*max-age=0\s*$/i.test(a));
+      if (expired || value === "") jar.delete(name);
+      else jar.set(name, value);
+    }
+  }
+
+  async function call(method, path, body) {
+    const cookie = cookieHeader();
 
     const response = await fetch(`${BASE}${path}`, {
       method,
@@ -54,16 +69,7 @@ function makeClient() {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
 
-    for (const entry of response.headers.getSetCookie?.() ?? []) {
-      const [pair, ...attributes] = entry.split(";");
-      const index = pair.indexOf("=");
-      const name = pair.slice(0, index).trim();
-      const value = pair.slice(index + 1);
-
-      const expired = attributes.some((a) => /^\s*max-age=0\s*$/i.test(a));
-      if (expired || value === "") jar.delete(name);
-      else jar.set(name, value);
-    }
+    absorb(response);
 
     const text = await response.text();
     let json;
@@ -73,17 +79,89 @@ function makeClient() {
       json = text;
     }
     return { status: response.status, body: json };
+  }
+
+  /**
+   * Open a link from an email the way a browser would: one GET, no Origin
+   * header, and the redirect left for the caller to read rather than followed.
+   * Cookies it sets land in the same jar, which is how a confirmation link
+   * ends up signing the person in.
+   */
+  call.follow = async (url) => {
+    const cookie = cookieHeader();
+    const response = await fetch(url, {
+      redirect: "manual",
+      headers: cookie ? { cookie } : {},
+    });
+    absorb(response);
+    return { status: response.status, location: response.headers.get("location") };
   };
+
+  return call;
 }
 
+// ---- the mail the service would have sent ------------------------------------
+//
+// In development nothing is sent: the API writes each message to a file, and
+// this reads it. That is what lets a test click the link a real inbox would
+// have received, without a mail server and without a route on the API that
+// hands out other people's links.
+
+const OUTBOX = new URL("../../../.mail/outbox.jsonl", import.meta.url);
+
+function outbox() {
+  try {
+    return readFileSync(OUTBOX, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  } catch {
+    return [];
+  }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** The first message to `to` after position `since` whose subject matches, or null. */
+async function waitForMail(to, since, subject) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const found = outbox()
+      .slice(since)
+      .find((mail) => mail.to === to.toLowerCase() && (!subject || subject.test(mail.subject)));
+    if (found) return found;
+    await sleep(100);
+  }
+  return null;
+}
+
+/** The link in a message, from its plain-text body. */
+const linkIn = (mail) => mail.text.split(/\s+/).find((word) => word.startsWith("http"));
+
+const PASSWORD = "correct-horse-battery";
+
+/**
+ * Create an account the way a person does: sign up, then open the link in the
+ * email. Sign-up alone no longer signs anyone in, so anything that needs a
+ * working session goes through here.
+ */
 async function signUp(call, email) {
+  const before = outbox().length;
   const result = await call("POST", "/api/auth/sign-up/email", {
     email,
-    password: "correct-horse-battery",
+    password: PASSWORD,
     name: email.split("@")[0],
+    callbackURL: `${ORIGIN}/verify`,
   });
   if (result.status >= 400) {
     throw new Error(`sign-up failed (${result.status}): ${JSON.stringify(result.body)}`);
+  }
+
+  const mail = await waitForMail(email, before, /confirm/i);
+  if (!mail) throw new Error(`no confirmation email reached ${email}`);
+
+  const landed = await call.follow(linkIn(mail));
+  if (landed.status !== 302) {
+    throw new Error(`the confirmation link did not redirect (${landed.status})`);
   }
   return result;
 }
@@ -131,6 +209,210 @@ check("alice can sign up", true);
 
   const settings = await alice("GET", "/api/settings");
   check("settings default to PHP", settings.body?.currency === "PHP");
+}
+
+// ---- proving the mailbox -----------------------------------------------------
+
+console.log("\nEmail verification");
+const carol = makeClient();
+const carolEmail = `carol+${stamp}@example.test`;
+{
+  const before = outbox().length;
+  const created = await carol("POST", "/api/auth/sign-up/email", {
+    email: carolEmail,
+    password: PASSWORD,
+    name: "Carol",
+    callbackURL: `${ORIGIN}/verify`,
+  });
+  check("signing up succeeds", created.status === 200, `got ${created.status}`);
+  check("but it does not sign anyone in", created.body?.token === null);
+  check("so there is no session yet", (await carol("GET", "/api/me")).status === 401);
+
+  const first = await waitForMail(carolEmail, before, /confirm/i);
+  check("a confirmation email is sent to the address", Boolean(first));
+  check(
+    "its link is on the API",
+    Boolean(first) && linkIn(first).includes("/api/auth/verify-email?token="),
+  );
+
+  const mailCount = outbox().length;
+  const wrong = await carol("POST", "/api/auth/sign-in/email", {
+    email: carolEmail,
+    password: "not-the-password",
+  });
+  check("a wrong password is just refused", wrong.status === 401, `got ${wrong.status}`);
+  await sleep(400);
+  check("and mails nobody", outbox().length === mailCount);
+
+  const blocked = await carol("POST", "/api/auth/sign-in/email", {
+    email: carolEmail,
+    password: PASSWORD,
+    // The browser sends this, so the fresh link knows where to land.
+    callbackURL: `${ORIGIN}/verify`,
+  });
+  check(
+    "the right password is refused until the address is confirmed",
+    blocked.status === 403,
+    `got ${blocked.status}`,
+  );
+  check(
+    "with a code the browser can act on",
+    blocked.body?.code === "EMAIL_NOT_VERIFIED",
+    JSON.stringify(blocked.body),
+  );
+
+  const fresh = await waitForMail(carolEmail, mailCount, /confirm/i);
+  check("and a fresh link is sent", Boolean(fresh));
+  check("still no session", (await carol("GET", "/api/me")).status === 401);
+  check("and the ledger stays shut", (await carol("GET", "/api/accounts")).status === 401);
+
+  const tampered = await carol.follow(linkIn(fresh).replace("token=", "token=x"));
+  check(
+    "a tampered link is refused",
+    tampered.status === 302 && /error=/.test(tampered.location ?? ""),
+    JSON.stringify(tampered),
+  );
+  check("and signs nobody in", (await carol("GET", "/api/me")).status === 401);
+
+  const landed = await carol.follow(linkIn(fresh));
+  check(
+    "the real link redirects back to the app",
+    landed.status === 302 && (landed.location ?? "").startsWith(`${ORIGIN}/verify`),
+    JSON.stringify(landed),
+  );
+
+  const me = await carol("GET", "/api/me");
+  check("and signs the person in", me.status === 200 && me.body?.email === carolEmail);
+  check("with a ledger of their own", (await carol("GET", "/api/accounts")).body?.length === 1);
+
+  // Signing up again with an address that is taken must look exactly like
+  // signing up with a new one - otherwise the form is a way to look people up.
+  const twin = makeClient();
+  const beforeTwin = outbox().length;
+  const again = await twin("POST", "/api/auth/sign-up/email", {
+    email: carolEmail,
+    password: "a-different-password",
+    name: "Impostor",
+    callbackURL: `${ORIGIN}/verify`,
+  });
+  check(
+    "signing up again with a taken address looks identical",
+    again.status === 200 && again.body?.token === null,
+    `got ${again.status}`,
+  );
+
+  const notice = await waitForMail(carolEmail, beforeTwin, /already have/i);
+  check("but the real owner is told", Boolean(notice));
+  check("and that email carries no token to act on", Boolean(notice) && !/token=/.test(notice.text));
+
+  const impostor = await twin("POST", "/api/auth/sign-in/email", {
+    email: carolEmail,
+    password: "a-different-password",
+  });
+  check("the second password does nothing", impostor.status === 401, `got ${impostor.status}`);
+}
+
+// ---- forgot password ---------------------------------------------------------
+
+console.log("\nPassword reset");
+{
+  const anon = makeClient();
+  const NEW_PASSWORD = "a-brand-new-passphrase";
+  const redirectTo = `${ORIGIN}/reset-password`;
+
+  const ghost = `nobody+${stamp}@example.test`;
+  const beforeGhost = outbox().length;
+  const unknown = await anon("POST", "/api/auth/request-password-reset", { email: ghost, redirectTo });
+
+  const beforeReal = outbox().length;
+  const known = await anon("POST", "/api/auth/request-password-reset", {
+    email: carolEmail,
+    redirectTo,
+  });
+
+  check("asking for an unknown address is accepted", unknown.status === 200, `got ${unknown.status}`);
+  check(
+    "and answers in exactly the words a real account gets",
+    JSON.stringify(unknown.body) === JSON.stringify(known.body),
+    `${JSON.stringify(unknown.body)} vs ${JSON.stringify(known.body)}`,
+  );
+
+  await sleep(400);
+  check(
+    "nothing is mailed to an address with no account",
+    !outbox().slice(beforeGhost).some((mail) => mail.to === ghost),
+  );
+
+  const resetMail = await waitForMail(carolEmail, beforeReal, /reset/i);
+  check("the real account gets a reset email", Boolean(resetMail));
+
+  const hop = await anon.follow(linkIn(resetMail));
+  const token = hop.location ? new URL(hop.location).searchParams.get("token") : null;
+  check(
+    "its link redirects to the app carrying a token",
+    hop.status === 302 && (hop.location ?? "").startsWith(redirectTo) && Boolean(token),
+    JSON.stringify(hop),
+  );
+
+  const short = await anon("POST", "/api/auth/reset-password", { newPassword: "short", token });
+  check("a too-short new password is refused", short.status === 400, `got ${short.status}`);
+
+  const reset = await anon("POST", "/api/auth/reset-password", { newPassword: NEW_PASSWORD, token });
+  check("choosing a new password works", reset.status === 200, `got ${reset.status}`);
+
+  const reuse = await anon("POST", "/api/auth/reset-password", {
+    newPassword: "yet-another-passphrase",
+    token,
+  });
+  check("the link works only once", reuse.status === 400, `got ${reuse.status}`);
+
+  const oldLogin = await makeClient()("POST", "/api/auth/sign-in/email", {
+    email: carolEmail,
+    password: PASSWORD,
+  });
+  check("the old password no longer works", oldLogin.status === 401, `got ${oldLogin.status}`);
+
+  const freshCarol = makeClient();
+  const newLogin = await freshCarol("POST", "/api/auth/sign-in/email", {
+    email: carolEmail,
+    password: NEW_PASSWORD,
+  });
+  check("the new one does", newLogin.status === 200, `got ${newLogin.status}`);
+
+  // A reset is often a response to a stolen password, so the login the thief
+  // may be holding has to die with it.
+  const stale = await carol("GET", "/api/accounts");
+  check("every session from before the reset is ended", stale.status === 401, `got ${stale.status}`);
+
+  // Reading the reset email proves the mailbox as well as a confirmation link
+  // does, so an account that never confirmed does not have to as well.
+  const dave = makeClient();
+  const daveEmail = `dave+${stamp}@example.test`;
+  const beforeDave = outbox().length;
+  await dave("POST", "/api/auth/sign-up/email", {
+    email: daveEmail,
+    password: PASSWORD,
+    name: "Dave",
+    callbackURL: `${ORIGIN}/verify`,
+  });
+  await waitForMail(daveEmail, beforeDave, /confirm/i);
+
+  const beforeDaveReset = outbox().length;
+  await dave("POST", "/api/auth/request-password-reset", { email: daveEmail, redirectTo });
+  const daveMail = await waitForMail(daveEmail, beforeDaveReset, /reset/i);
+  const daveHop = await dave.follow(linkIn(daveMail));
+  const daveToken = new URL(daveHop.location).searchParams.get("token");
+  await dave("POST", "/api/auth/reset-password", { newPassword: NEW_PASSWORD, token: daveToken });
+
+  const daveLogin = await dave("POST", "/api/auth/sign-in/email", {
+    email: daveEmail,
+    password: NEW_PASSWORD,
+  });
+  check(
+    "resetting a password also confirms the address it was sent to",
+    daveLogin.status === 200,
+    `got ${daveLogin.status}`,
+  );
 }
 
 // ---- writing and deriving ---------------------------------------------------
@@ -420,16 +702,15 @@ const admin = makeClient();
 console.log("\nAdmin, with the rights");
 {
   // Only runs when the service was started with this address in ADMIN_EMAILS.
-  const signedUp = await admin("POST", "/api/auth/sign-up/email", {
+  const attempt = await admin("POST", "/api/auth/sign-in/email", {
     email: adminEmail,
-    password: "correct-horse-battery",
-    name: "Admin",
+    password: PASSWORD,
   });
-  if (signedUp.status >= 400) {
-    await admin("POST", "/api/auth/sign-in/email", {
-      email: adminEmail,
-      password: "correct-horse-battery",
-    });
+  if (attempt.status >= 400) {
+    // Not there yet, or there and unconfirmed: go through the same door
+    // everyone else does. If the account exists under some other password this
+    // throws, and the check below reports the admin half as skipped.
+    await signUp(admin, adminEmail).catch(() => undefined);
   }
 
   const me = await admin("GET", "/api/me");

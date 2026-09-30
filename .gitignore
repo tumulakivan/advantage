@@ -21,3 +21,6 @@ data/private/
 initial_data/
 *.sqlite3
 advantage-backup-*.json
+
+# Development mail outbox: verification and reset links the dev transport printed.
+.mail/

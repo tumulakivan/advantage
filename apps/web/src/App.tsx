@@ -1,3 +1,4 @@
+import * as React from "react";
 import { createBrowserRouter, Navigate, Outlet, RouterProvider } from "react-router-dom";
 
 import { Logo } from "@/components/brand/Logo";
@@ -8,10 +9,13 @@ import { AdminPage } from "@/pages/Admin";
 import { BudgetsPage } from "@/pages/Budgets";
 import { CategoriesPage } from "@/pages/Categories";
 import { DashboardPage } from "@/pages/Dashboard";
+import { ForgotPasswordPage } from "@/pages/ForgotPassword";
 import { PlannedPage } from "@/pages/Planned";
+import { ResetPasswordPage } from "@/pages/ResetPassword";
 import { SettingsPage } from "@/pages/Settings";
 import { SignInPage, SignUpPage } from "@/pages/SignIn";
 import { TransactionsPage } from "@/pages/Transactions";
+import { VerifyEmailPage } from "@/pages/VerifyEmail";
 import { SessionProvider, useSession } from "@/providers/SessionProvider";
 
 /**
@@ -27,11 +31,22 @@ function RequireSession() {
   return <Outlet />;
 }
 
-/** The inverse: an already-signed-in person has no use for the sign-in page. */
+/**
+ * The inverse: an already-signed-in person has no use for the sign-in page.
+ *
+ * The splash is for the first answer only. For someone who is signed out, the
+ * auth client reports "loading" again every time it re-reads the session - after
+ * a sign-up, when the tab regains focus - and swapping the page for a blank
+ * splash each time unmounts it. That threw away whatever was typed into the
+ * form, and it wiped the "check your email" screen a moment after it appeared.
+ * Once there has been an answer, the page stays put while the next one loads.
+ */
 function RequireNoSession() {
   const { status, user } = useSession();
+  const answered = React.useRef(false);
 
-  if (status === "loading") return <Resolving />;
+  if (status !== "loading") answered.current = true;
+  if (status === "loading" && !answered.current) return <Resolving />;
   if (status === "signed-in") return <Navigate to={user?.isAdmin ? "/admin" : "/"} replace />;
   return <Outlet />;
 }
@@ -78,8 +93,17 @@ const router = createBrowserRouter([
     children: [
       { path: "/signin", element: <SignInPage /> },
       { path: "/signup", element: <SignUpPage /> },
+      // A signed-in visitor is forwarded to the app, which is right for an
+      // emailed confirmation link: by the time it lands here the server has
+      // already signed them in, so this only renders when something failed.
+      { path: "/verify", element: <VerifyEmailPage /> },
+      { path: "/forgot-password", element: <ForgotPasswordPage /> },
     ],
   },
+  // Outside both guards. Someone signed in on this browser who follows a reset
+  // link still means to reset, and a guard that bounced them to the dashboard
+  // would swallow the link.
+  { path: "/reset-password", element: <ResetPasswordPage /> },
   {
     element: <RequireSession />,
     children: [

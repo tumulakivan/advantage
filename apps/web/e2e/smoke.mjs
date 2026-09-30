@@ -15,7 +15,7 @@
  *   BASE_URL=http://localhost:5173 node e2e/smoke.mjs   # against `npm run dev`
  *   HEADLESS=false node e2e/smoke.mjs                   # watch it happen
  */
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
 import process from "node:process";
@@ -26,6 +26,40 @@ import puppeteer from "puppeteer-core";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
 const SHOTS = path.join(HERE, "screenshots");
+
+/**
+ * The mail the API would have sent. In development nothing leaves the machine:
+ * the API appends each message to this file, which is how a test can open the
+ * link a real inbox would have received. See apps/api/src/mail/dev.ts for why
+ * it is a file rather than a route.
+ */
+const OUTBOX = path.join(HERE, "..", "..", "..", ".mail", "outbox.jsonl");
+
+function outbox() {
+  try {
+    return readFileSync(OUTBOX, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  } catch {
+    return [];
+  }
+}
+
+/** The first message to `to` after position `since` whose subject matches, or null. */
+async function waitForMail(to, since, subject) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const found = outbox()
+      .slice(since)
+      .find((mail) => mail.to === to.toLowerCase() && (!subject || subject.test(mail.subject)));
+    if (found) return found;
+    await pause(100);
+  }
+  return null;
+}
+
+/** The link in a message, from its plain-text body. */
+const linkIn = (mail) => mail.text.split(/\s+/).find((word) => word.startsWith("http"));
 
 /** What the stubbed fact service answers with, so the header line is assertable. */
 const FACT = "A duck's quack does not echo, and no one knows why.";
@@ -305,14 +339,105 @@ async function main() {
     check("an unauthenticated visit lands on sign-in", page.url().includes("/signin"));
 
     const email = `smoke+${Date.now()}@example.test`;
+    check("sign-in has no confirmation field", (await page.$("#auth-confirm")) === null);
     await clickText(page, "a", "Create an account");
     await page.waitForSelector("#auth-name", { timeout: 10_000 });
     await page.type("#auth-name", "Smoke Test");
     await page.type("#auth-email", email);
-    await page.type("#auth-password", "correct-horse-battery");
+
+    // The form asks twice, and says what is wrong before anything is sent.
+    check("sign-up asks for the password a second time", (await page.$("#auth-confirm")) !== null);
+
+    const replace = async (selector, value) => {
+      await page.click(selector, { clickCount: 3 });
+      await page.keyboard.press("Backspace");
+      if (value) await page.type(selector, value);
+    };
+
+    await page.type("#auth-password", "short");
+    await page.type("#auth-confirm", "different");
+    await clickText(page, "button", "Create account");
+    let shown = await textOf(page);
+    check("a short password is refused with the reason", shown.includes("must be at least 8 characters"));
+    check("a mismatch is refused with the reason", shown.includes("passwords do not match"));
+    check("neither reaches the server", page.url().includes("/signup"));
+    check(
+      "the offending fields are marked invalid",
+      await page.evaluate(
+        () =>
+          document.querySelector("#auth-password")?.getAttribute("aria-invalid") === "true" &&
+          document.querySelector("#auth-confirm")?.getAttribute("aria-invalid") === "true",
+      ),
+    );
+
+    // Long enough now, but the two still disagree: only the mismatch remains.
+    await replace("#auth-password", "correct-horse-battery");
+    await replace("#auth-confirm", "correct-horse-batterx");
+    await clickText(page, "button", "Create account");
+    shown = await textOf(page);
+    check("a long enough password drops the length error", !shown.includes("must be at least 8 characters"));
+    check("a near-miss confirmation is still a mismatch", shown.includes("passwords do not match"));
+    check("and still nothing is sent", page.url().includes("/signup"));
+
+    // Fixing it clears the message and lets the form through.
+    await replace("#auth-confirm", "correct-horse-battery");
+    check("matching passwords clear the error", !(await textOf(page)).includes("passwords do not match"));
+    const mailBefore = outbox().length;
     await clickText(page, "button", "Create account");
 
+    // Sign-up no longer signs anyone in: it asks them to open a link first.
+    await waitForText(page, "check your email", 30_000);
+
+    // The session is re-read right after a sign-up. That used to swap the page
+    // for a blank splash and back, which threw this screen away a moment after
+    // it appeared - so give it time to happen, then look again.
+    await pause(2000);
+    shown = await textOf(page);
+    check("and the panel stays up once the session refresh settles", shown.includes("check your email"), shown.slice(0, 120));
+    check("signing up asks for the email to be confirmed", true);
+    check("and says which address the link went to", shown.includes(email), shown.slice(0, 260));
+    check("with a resend that waits before it will fire again", shown.includes("send it again"), shown.slice(0, 260));
+    check("and no dashboard yet", !shown.includes("net worth"));
+
+    const firstMail = await waitForMail(email, mailBefore, /confirm/i);
+    check("a confirmation email was sent", Boolean(firstMail));
+
+    // Trying to sign in before confirming is refused, says why, and mails a
+    // fresh link. The refusal is a 403, which Chrome reports as a console error
+    // of its own, so it is claimed here rather than left to fail the run.
+    await page.goto(`${target}/signin`, { waitUntil: "networkidle2" });
+    await page.waitForSelector("#auth-email", { timeout: 15_000 });
+    await page.type("#auth-email", email);
+    await page.type("#auth-password", "correct-horse-battery");
+
+    const refusalMark = consoleErrors.length;
+    const beforeRetry = outbox().length;
+    await clickText(page, "button", "Sign in");
+    await waitForText(page, "confirm your email first", 30_000);
+    check("signing in before confirming is stopped with an explanation", true);
+
+    const refused = consoleErrors.splice(refusalMark).filter((message) => message.includes("403"));
+    check("by a 403 from the server", refused.length >= 1, "no 403 was logged");
+
+    const freshMail = await waitForMail(email, beforeRetry, /confirm/i);
+    check("and a fresh link is sent", Boolean(freshMail));
+
+    // A link that has been tampered with lands on a page that says so and
+    // offers another, rather than on a blank screen or the dashboard.
+    await page.goto(linkIn(freshMail).replace("token=", "token=x"), { waitUntil: "networkidle2" });
+    await waitForText(page, "that link did not work", 30_000);
+    check("a broken confirmation link explains itself", page.url().includes("/verify"));
+    check(
+      "and offers to send another",
+      (await textOf(page)).includes("send a new link"),
+    );
+
+    // The real one confirms the address, signs the person in, and drops them
+    // in the app - no second password prompt.
+    await page.goto(linkIn(freshMail), { waitUntil: "networkidle2" });
     await waitForText(page, "net worth", 60_000);
+    check("opening the real link confirms the address and signs in", true);
+    check("and lands in the app, not on the API", !page.url().includes(":4000"), page.url());
     check("signing up seeds a ledger and renders the dashboard", true);
     check("the session shows who is signed in", (await textOf(page)).includes(email));
 
@@ -865,6 +990,61 @@ async function main() {
     await page.goto(`${target}/transactions`, { waitUntil: "networkidle2" });
     await page.waitForSelector("#auth-email", { timeout: 15_000 });
     check("a signed-out visit cannot reach a screen", page.url().includes("/signin"));
+
+    // 11. Forgot password, from the sign-in page to signing in with the new one.
+    const NEW_PASSWORD = "a-brand-new-passphrase";
+    await clickText(page, "a", "Forgot password?");
+    await page.waitForSelector("#forgot-email", { timeout: 15_000 });
+    check("sign-in links to forgot password", page.url().includes("/forgot-password"));
+
+    await page.type("#forgot-email", email);
+    const beforeReset = outbox().length;
+    await clickText(page, "button", "Send reset link");
+    await waitForText(page, "if an account exists", 30_000);
+    check("asking for a link answers without confirming the account exists", true);
+
+    const resetMail = await waitForMail(email, beforeReset, /reset/i);
+    check("the reset email arrives", Boolean(resetMail));
+
+    await page.goto(linkIn(resetMail), { waitUntil: "networkidle2" });
+    await page.waitForSelector("#reset-password", { timeout: 30_000 });
+    check("its link opens the reset form in the app", page.url().includes("/reset-password?token="), page.url());
+
+    await page.type("#reset-password", "short");
+    await page.type("#reset-confirm", "different");
+    await clickText(page, "button", "Update password");
+    shown = await textOf(page);
+    check("the reset form applies the same length rule", shown.includes("must be at least 8 characters"));
+    check("and the same match rule", shown.includes("passwords do not match"));
+
+    await replace("#reset-password", NEW_PASSWORD);
+    await replace("#reset-confirm", NEW_PASSWORD);
+    await clickText(page, "button", "Update password");
+    await waitForText(page, "password updated", 30_000);
+    check("matching passwords update it", true);
+
+    // Single use: the same link, opened again, is dead.
+    await page.goto(linkIn(resetMail), { waitUntil: "networkidle2" });
+    await waitForText(page, "that link has expired", 30_000);
+    check("the reset link works only once", true);
+
+    // The old password stops working; the new one signs in. The refusal is a
+    // 401, claimed for the same reason as the 403 above.
+    await page.goto(`${target}/signin`, { waitUntil: "networkidle2" });
+    await page.waitForSelector("#auth-email", { timeout: 15_000 });
+    await page.type("#auth-email", email);
+    await page.type("#auth-password", "correct-horse-battery");
+
+    const oldMark = consoleErrors.length;
+    await clickText(page, "button", "Sign in");
+    await waitForText(page, "invalid email or password", 30_000);
+    const rejected = consoleErrors.splice(oldMark).filter((message) => message.includes("401"));
+    check("the old password is refused", rejected.length >= 1, "no 401 was logged");
+
+    await replace("#auth-password", NEW_PASSWORD);
+    await clickText(page, "button", "Sign in");
+    await waitForText(page, "net worth", 60_000);
+    check("the new password signs in", true);
 
     const realErrors = consoleErrors.filter(
       (message) => !message.includes("favicon") && !message.includes("sourcemap"),

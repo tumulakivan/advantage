@@ -1,6 +1,27 @@
 import { createApp } from "./app";
-import { disconnect } from "./db/client";
+import { disconnect, prisma } from "./db/client";
 import { adminEmailList, env } from "./env";
+
+/**
+ * Sign-in requires a confirmed address, and this is what makes that true of
+ * sessions that predate the rule rather than only of new ones.
+ *
+ * Without it, an account created before verification existed - including one
+ * registered with somebody else's address - would keep a valid login for the
+ * rest of its 30 days. After this, the only way to hold a session is to have
+ * gone through a flow that proves the mailbox, so it is an invariant rather
+ * than a hope. It is a no-op on a fresh database, which is where a deployment
+ * starts.
+ */
+try {
+  const { count } = await prisma.session.deleteMany({ where: { user: { emailVerified: false } } });
+  if (count > 0) {
+    console.log(`Signed out ${count} session(s) belonging to unverified accounts.`);
+  }
+} catch (error) {
+  // The database not being up is reported properly on the first real query.
+  console.warn(`Could not check sessions for unverified accounts - ${String(error).split("\n")[0]}`);
+}
 
 const app = createApp();
 

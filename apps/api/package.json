@@ -19,7 +19,8 @@
     "clean": "rimraf dist .turbo node_modules",
     "smoke": "node scripts/smoke.mjs",
     "db:seed:catalog": "tsx --env-file-if-exists=../../.env scripts/seed-catalog.ts",
-    "admin": "tsx --env-file-if-exists=../../.env scripts/admin-account.ts"
+    "admin": "tsx --env-file-if-exists=../../.env scripts/admin-account.ts",
+    "user:verify": "tsx --env-file-if-exists=../../.env scripts/verify-user.ts"
   },
   "dependencies": {
     "@advantage/core": "^0.1.0",

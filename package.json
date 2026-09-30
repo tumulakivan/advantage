@@ -26,7 +26,8 @@
     "smoke": "npm run smoke -w @advantage/api && npm run smoke -w @advantage/web",
     "setup:env": "node scripts/setup-env.mjs",
     "db:seed:catalog": "npm run db:seed:catalog -w @advantage/api",
-    "admin": "npm run admin -w @advantage/api --"
+    "admin": "npm run admin -w @advantage/api --",
+    "user:verify": "npm run user:verify -w @advantage/api --"
   },
   "devDependencies": {
     "rimraf": "^6.1.3",
