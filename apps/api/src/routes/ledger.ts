@@ -6,6 +6,7 @@ import {
   createAccount,
   listAccounts,
   restoreAccount,
+  setAccountBalance,
   updateAccount,
 } from "../queries/accounts";
 import {
@@ -28,6 +29,7 @@ import {
   accountInput,
   accountPatch,
   addFromCatalogInput,
+  balanceAdjustmentInput,
   categoryInput,
   categoryPatch,
   transactionFilters,
@@ -69,6 +71,16 @@ ledgerRouter.post("/accounts/from-catalog", async (req, res) => {
 ledgerRouter.patch("/accounts/:id", async (req, res) => {
   await updateAccount(req.tenant, req.params.id, accountPatch.parse(req.body));
   res.status(204).end();
+});
+
+/** Set what an account holds now; the difference is recorded as an adjustment. */
+ledgerRouter.post("/accounts/:id/balance", async (req, res) => {
+  const result = await setAccountBalance(
+    req.tenant,
+    req.params.id,
+    balanceAdjustmentInput.parse(req.body),
+  );
+  res.status(result.id ? 201 : 200).json(result);
 });
 
 ledgerRouter.post("/accounts/:id/archive", async (req, res) => {

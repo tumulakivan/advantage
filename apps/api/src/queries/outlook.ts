@@ -24,7 +24,9 @@ export async function outlookEntries(
       where: {
         userId,
         date: { gte: from, lte: to },
-        type: { not: "transfer" },
+        // Transfers and balance adjustments move money without earning or
+        // spending any, so neither belongs in a forecast of cash flow.
+        type: { in: ["income", "expense"] },
       },
       include: {
         category: { include: { parent: true } },

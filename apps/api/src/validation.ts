@@ -2,6 +2,7 @@ import {
   ACCOUNT_TYPES,
   CATEGORY_KINDS,
   FREQUENCIES,
+  LOGGABLE_TRANSACTION_TYPES,
   TRANSACTION_TYPES,
 } from "@advantage/core";
 import { z } from "zod";
@@ -49,6 +50,13 @@ export const accountInput = z.object({
 
 export const accountPatch = accountInput.partial();
 
+/** "This account holds this much now." The service works out the difference. */
+export const balanceAdjustmentInput = z.object({
+  balanceMinor: minorAmount,
+  date: isoDate.optional(),
+  note: nullableText,
+});
+
 // ---- categories -------------------------------------------------------------
 
 export const categoryInput = z.object({
@@ -67,7 +75,8 @@ export const categoryPatch = categoryInput.partial();
 // ---- transactions -----------------------------------------------------------
 
 export const transactionInput = z.object({
-  type: z.enum(TRANSACTION_TYPES),
+  // Adjustments come only from setting a balance; see `balanceAdjustmentInput`.
+  type: z.enum(LOGGABLE_TRANSACTION_TYPES),
   amountMinor: minorAmount,
   date: isoDate,
   accountId: id,

@@ -156,6 +156,20 @@ export interface AccountInput {
 }
 export type AccountPatch = Partial<AccountInput>;
 
+/** Set an account to what it actually holds; the difference becomes an adjustment record. */
+export interface BalanceAdjustmentInput {
+  balanceMinor: Minor;
+  /** Defaults to today. */
+  date?: IsoDate;
+  note?: string | null;
+}
+
+export interface BalanceAdjustmentResult {
+  /** The adjustment record, or null when the balance already matched. */
+  id: string | null;
+  deltaMinor: Minor;
+}
+
 export interface CategoryInput {
   name: string;
   slug?: string | null;

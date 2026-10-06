@@ -9,6 +9,7 @@ import type { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 
 import type { Tenant } from "../db/tenant";
+import { ApiError } from "../errors";
 import { effectiveColor, toTransaction } from "./mappers";
 
 /** Everything a transaction row needs to render without a second lookup. */
@@ -120,8 +121,9 @@ export async function createTransaction(
       id,
       userId: tenant.userId,
       type: input.type,
-      // Stored as a magnitude; `type` is what carries the direction.
-      amountMinor: Math.abs(input.amountMinor),
+      // Stored as a magnitude; `type` is what carries the direction. The one
+      // exception is an adjustment, which can go either way and so keeps its sign.
+      amountMinor: input.type === "adjustment" ? input.amountMinor : Math.abs(input.amountMinor),
       date: input.date,
       accountId: input.accountId,
       toAccountId: input.toAccountId ?? null,
@@ -143,6 +145,19 @@ export async function updateTransaction(
   id: string,
   patch: TransactionPatch,
 ): Promise<void> {
+  // An adjustment is a consequence of the balance someone set, not a record
+  // they logged; editing its amount would quietly move the balance they
+  // confirmed. Taking it out and setting the balance again is the honest edit.
+  const existing = await tenant.db.transaction.findFirst({
+    where: { id, userId: tenant.userId },
+    select: { type: true },
+  });
+  if (existing?.type === "adjustment" || patch.type === "adjustment") {
+    throw ApiError.badRequest(
+      "A balance adjustment can't be edited. Delete it, then set the balance again.",
+    );
+  }
+
   await tenant.db.transaction.updateMany({
     where: { id, userId: tenant.userId },
     data: {

@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { MonthSwitcher } from "@/components/layout/MonthSwitcher";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AccountSelect } from "@/components/transactions/AccountSelect";
+import { AdjustmentDialog } from "@/components/transactions/AdjustmentDialog";
 import { CategorySelect } from "@/components/transactions/CategorySelect";
 import { TransactionForm } from "@/components/transactions/TransactionForm";
 import { TransactionList } from "@/components/transactions/TransactionList";
@@ -30,6 +31,7 @@ export function TransactionsPage() {
   const [categoryId, setCategoryId] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState<TransactionRow | null>(null);
   const [formOpen, setFormOpen] = React.useState(false);
+  const [adjustment, setAdjustment] = React.useState<TransactionRow | null>(null);
 
   const accounts = useAccounts().data;
   const categoryOptions = useCategoryOptions(type === "income" ? "income" : "expense").data;
@@ -69,6 +71,10 @@ export function TransactionsPage() {
   }
 
   function edit(row: TransactionRow) {
+    if (row.type === "adjustment") {
+      setAdjustment(row);
+      return;
+    }
     setEditing(row);
     setFormOpen(true);
   }
@@ -104,12 +110,18 @@ export function TransactionsPage() {
 
       <Card className="p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Tabs value={type} onValueChange={(value) => setType(value as TypeFilter)}>
-            <TabsList>
+          <Tabs
+            value={type}
+            onValueChange={(value) => setType(value as TypeFilter)}
+            className="max-w-full"
+          >
+            {/* Five kinds no longer fit a phone's width; scroll them rather than the page. */}
+            <TabsList className="max-w-full justify-start overflow-x-auto">
               <TabsTrigger value="all">All</TabsTrigger>
               <TabsTrigger value="expense">Expenses</TabsTrigger>
               <TabsTrigger value="income">Income</TabsTrigger>
               <TabsTrigger value="transfer">Transfers</TabsTrigger>
+              <TabsTrigger value="adjustment">Adjustments</TabsTrigger>
             </TabsList>
           </Tabs>
 
@@ -133,7 +145,7 @@ export function TransactionsPage() {
             />
           </div>
 
-          {type !== "transfer" ? (
+          {type !== "transfer" && type !== "adjustment" ? (
             <div className="w-full sm:w-[14rem]">
               <CategorySelect
                 options={categoryOptions}
@@ -195,6 +207,13 @@ export function TransactionsPage() {
       </Card>
 
       <TransactionForm open={formOpen} onOpenChange={setFormOpen} record={editing} />
+
+      <AdjustmentDialog
+        record={adjustment}
+        onOpenChange={(next) => {
+          if (!next) setAdjustment(null);
+        }}
+      />
     </div>
   );
 }

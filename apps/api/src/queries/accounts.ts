@@ -3,14 +3,18 @@ import type {
   AccountPatch,
   AccountWithBalance,
   AddFromCatalogInput,
+  BalanceAdjustmentInput,
+  BalanceAdjustmentResult,
 } from "@advantage/api-client/types";
+import { todayIso } from "@advantage/core";
 import { randomUUID } from "node:crypto";
 
 import { prisma } from "../db/client";
-import type { Tenant } from "../db/tenant";
+import { transact, type Tenant } from "../db/tenant";
 import { ApiError } from "../errors";
 import { logoIndex } from "./catalog";
 import { toAccount } from "./mappers";
+import { createTransaction } from "./transactions";
 
 /**
  * Balances are always derived, never stored: opening balance, plus everything
@@ -54,13 +58,13 @@ export async function listAccounts(
     logoIndex(),
   ]);
 
-  // Income adds, everything else - expense and the sending half of a transfer -
-  // takes away.
+  // Income adds, an adjustment already carries its own sign, and everything
+  // else - expense and the sending half of a transfer - takes away.
   const out = new Map<string, { delta: number; count: number }>();
   for (const row of movement) {
     const sum = row._sum.amountMinor ?? 0;
     const entry = out.get(row.accountId) ?? { delta: 0, count: 0 };
-    entry.delta += row.type === "income" ? sum : -sum;
+    entry.delta += row.type === "income" || row.type === "adjustment" ? sum : -sum;
     entry.count += row._count._all;
     out.set(row.accountId, entry);
   }
@@ -173,6 +177,41 @@ export async function updateAccount(
   await tenant.db.account.updateMany({
     where: { id, userId: tenant.userId },
     data: patch,
+  });
+}
+
+/**
+ * "It holds this much now" - for when the ledger and the bank have drifted
+ * apart, usually after a stretch of not logging.
+ *
+ * The balance stays derived. What gets written is an adjustment record for the
+ * difference, dated, visible in Transactions and removable, so the correction
+ * is a fact in the ledger rather than a rewrite of the opening balance.
+ * Adjustments are kept out of income, spending, budgets and the outlook: the
+ * money did move, but nobody earned or spent it on the day it was noticed.
+ */
+export async function setAccountBalance(
+  tenant: Tenant,
+  id: string,
+  input: BalanceAdjustmentInput,
+): Promise<BalanceAdjustmentResult> {
+  return transact(tenant, async (t) => {
+    const accounts = await listAccounts(t, { includeArchived: true });
+    const account = accounts.find((row) => row.id === id);
+    if (!account) throw ApiError.notFound("No such account.");
+
+    const deltaMinor = input.balanceMinor - account.balanceMinor;
+    if (deltaMinor === 0) return { id: null, deltaMinor };
+
+    const recordId = await createTransaction(t, {
+      type: "adjustment",
+      amountMinor: deltaMinor,
+      date: input.date ?? todayIso(),
+      accountId: account.id,
+      payee: "Balance adjustment",
+      note: input.note ?? null,
+    });
+    return { id: recordId, deltaMinor };
   });
 }
 

@@ -41,7 +41,7 @@ through `cmd.exe`.
 | **Transactions** | Every record, grouped by day with a day total. Filter by type, account, category or free text, over one month or all time. |
 | **Budgets** | A monthly ceiling per group (or one overall). Shows what is spent, what is left, and whether the *pace* lands over the line before month end. |
 | **Planned** | The recurring side: bills, installments and payouts. One tap turns a due item into a real record, and Undo takes it back out. |
-| **Accounts** | Starts with Cash. Add the rest from the shared catalog, each with its own mark, or set up your own with a name and an icon. Balances are derived from records, never typed in. |
+| **Accounts** | Starts with Cash. Add the rest from the shared catalog, each with its own mark, or set up your own with a name and an icon. Balances are derived from records, never typed in. **Set balance** catches an account up after time away: it records the difference as a dated *balance adjustment*, which moves the balance without counting as income or spending, and deleting it from Transactions undoes it. |
 | **Categories** | Seven expense groups, each owning one chart color, with subcategories beneath. |
 | **Settings** | Currency and number format, theme, your income sources, the data tools (JSON backup, import, erase), and account deletion. |
 | **Admin** | The whole app for an admin account, and the only screen it has: how the app is being used, and the account catalog everyone picks from. No one's records are readable from it. |

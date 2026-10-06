@@ -1,15 +1,16 @@
-import { ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS, type AccountType } from "@advantage/core";
+import { ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS, todayIso, type AccountType } from "@advantage/core";
 import {
   addAccountFromCatalog,
   archiveAccount,
   createAccount,
   listCatalog,
   restoreAccount,
+  setAccountBalance,
   updateAccount,
   type AccountWithBalance,
   type CatalogEntry,
 } from "@advantage/api-client";
-import { Archive, ArchiveRestore, Check, Loader2, Plus, Wallet } from "lucide-react";
+import { Archive, ArchiveRestore, Check, Loader2, Plus, Scale, Wallet } from "lucide-react";
 import * as React from "react";
 
 import { Amount } from "@/components/common/Amount";
@@ -57,6 +58,7 @@ export function AccountsPage() {
   const [editing, setEditing] = React.useState<AccountWithBalance | null>(null);
   const [open, setOpen] = React.useState(false);
   const [browsing, setBrowsing] = React.useState(false);
+  const [settling, setSettling] = React.useState<AccountWithBalance | null>(null);
 
   const live = accounts.filter((account) => !account.archivedAt);
   const total = live
@@ -67,7 +69,7 @@ export function AccountsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Accounts"
-        description="Every wallet the money passes through. Balances are derived from records, never typed in."
+        description="Every wallet the money passes through. Balances are derived from records; setting one records the difference as an adjustment."
         actions={
           <>
             <Button
@@ -113,12 +115,20 @@ export function AccountsPage() {
                 setEditing(account);
                 setOpen(true);
               }}
+              onSetBalance={() => setSettling(account)}
             />
           ))}
         </div>
       )}
 
       <AccountDialog open={open} onOpenChange={setOpen} account={editing} />
+
+      <BalanceDialog
+        account={settling}
+        onOpenChange={(next) => {
+          if (!next) setSettling(null);
+        }}
+      />
 
       <CatalogDialog
         open={browsing}
@@ -232,9 +242,11 @@ const NO_CATALOG: CatalogEntry[] = [];
 function AccountCard({
   account,
   onEdit,
+  onSetBalance,
 }: {
   account: AccountWithBalance;
   onEdit: () => void;
+  onSetBalance: () => void;
 }) {
   const api = useApi();
   const { run, pending } = useMutation();
@@ -275,6 +287,12 @@ function AccountCard({
           <Button variant="outline" size="sm" onClick={onEdit}>
             Edit
           </Button>
+          {archived ? null : (
+            <Button variant="outline" size="sm" onClick={onSetBalance}>
+              <Scale />
+              Set balance
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -403,6 +421,123 @@ function AccountDialog({
             <Button type="submit" disabled={pending || !name.trim()}>
               {pending ? <Loader2 className="animate-spin" /> : null}
               {account ? "Save changes" : "Add account"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * "It holds this much now." For when the ledger and the bank have drifted
+ * apart - usually after a stretch of not logging. The balance is still never
+ * typed in: what this saves is an adjustment record for the difference, dated
+ * today and removable from Transactions, and kept out of income and spending.
+ */
+function BalanceDialog({
+  account,
+  onOpenChange,
+}: {
+  account: AccountWithBalance | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const api = useApi();
+  const { run, pending, error } = useMutation();
+  const [balanceMinor, setBalanceMinor] = React.useState<number | null>(null);
+  const [note, setNote] = React.useState("");
+
+  React.useEffect(() => {
+    if (!account) return;
+    setBalanceMinor(account.balanceMinor);
+    setNote("");
+  }, [account]);
+
+  const deltaMinor =
+    account && balanceMinor !== null ? balanceMinor - account.balanceMinor : 0;
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!account || balanceMinor === null) return;
+    if (deltaMinor === 0) {
+      onOpenChange(false);
+      return;
+    }
+
+    const saved = await run(async () => {
+      await setAccountBalance(api, account.id, {
+        balanceMinor,
+        date: todayIso(),
+        note: note.trim() || null,
+      });
+      return true;
+    });
+    if (saved) onOpenChange(false);
+  }
+
+  return (
+    <Dialog open={account !== null} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <form onSubmit={submit} className="space-y-5">
+          <DialogHeader>
+            <DialogTitle>Set balance{account ? ` of ${account.name}` : ""}</DialogTitle>
+            <DialogDescription>
+              Enter what the account actually holds today. The difference is saved as a balance
+              adjustment, which you can delete from Transactions to undo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="border-border flex items-baseline justify-between gap-4 rounded-lg border px-3.5 py-2.5">
+            <span className="text-muted-foreground text-[12.5px] font-semibold">
+              Balance in adVantage
+            </span>
+            {account ? (
+              <Amount minor={account.balanceMinor} signed={false} className="text-[14px]" />
+            ) : null}
+          </div>
+
+          <Field label="Actual balance">
+            <AmountField
+              value={balanceMinor}
+              onChange={setBalanceMinor}
+              direction="neutral"
+              id="actual-balance"
+              autoFocus
+            />
+          </Field>
+
+          <Field label="Note" htmlFor="adjustment-note">
+            <Input
+              id="adjustment-note"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Caught up after a month away"
+            />
+          </Field>
+
+          <p className="text-muted-foreground text-[12.5px]" aria-live="polite">
+            {balanceMinor === null ? (
+              "Enter an amount. Use a minus sign for an overdrawn or credit account."
+            ) : deltaMinor === 0 ? (
+              "That matches what adVantage has, so nothing will be recorded."
+            ) : (
+              <>
+                Records an adjustment of{" "}
+                <Amount minor={deltaMinor} direction="auto" className="text-[12.5px]" /> dated
+                today. It won't count as income or spending.
+              </>
+            )}
+          </p>
+
+          {error ? <p className="text-destructive text-[13px] font-medium">{error}</p> : null}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={pending || balanceMinor === null}>
+              {pending ? <Loader2 className="animate-spin" /> : null}
+              {deltaMinor === 0 ? "Done" : "Save balance"}
             </Button>
           </DialogFooter>
         </form>

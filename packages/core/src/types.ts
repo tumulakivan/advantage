@@ -1,7 +1,14 @@
 /** Domain vocabulary. The DB schema mirrors these unions as text columns. */
 
-export const TRANSACTION_TYPES = ["expense", "income", "transfer"] as const;
+export const TRANSACTION_TYPES = ["expense", "income", "transfer", "adjustment"] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
+
+/**
+ * What a person can log by hand. An adjustment is never typed in as a record:
+ * it is what setting an account's balance leaves behind, so the difference
+ * between the ledger and the bank has a date and can be taken back out.
+ */
+export const LOGGABLE_TRANSACTION_TYPES = ["expense", "income", "transfer"] as const;
 
 export const ACCOUNT_TYPES = ["cash", "bank", "ewallet", "credit", "savings"] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];

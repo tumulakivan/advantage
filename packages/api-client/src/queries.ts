@@ -6,6 +6,8 @@ import type {
   AdminMetrics,
   AppSettings,
   BackupPayload,
+  BalanceAdjustmentInput,
+  BalanceAdjustmentResult,
   BudgetInput,
   CatalogEntry,
   CatalogEntryInput,
@@ -65,6 +67,15 @@ export async function createAccount(api: ApiClient, input: AccountInput): Promis
 
 export function updateAccount(api: ApiClient, id: string, patch: AccountPatch): Promise<void> {
   return api.patch(`/api/accounts/${id}`, patch);
+}
+
+/** Set what an account holds now. The difference is recorded as an adjustment. */
+export function setAccountBalance(
+  api: ApiClient,
+  id: string,
+  input: BalanceAdjustmentInput,
+): Promise<BalanceAdjustmentResult> {
+  return api.post(`/api/accounts/${id}/balance`, input);
 }
 
 export function archiveAccount(api: ApiClient, id: string): Promise<void> {

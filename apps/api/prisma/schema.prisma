@@ -201,7 +201,8 @@ model IncomeSource {
 model Transaction {
   id String @id
   type String
-  /// Positive magnitude in centavos. Direction comes from `type`.
+  /// Positive magnitude in centavos. Direction comes from `type` - except for
+  /// an `adjustment`, which is signed because it can go either way.
   amountMinor Int
   date        String
   payee       String?

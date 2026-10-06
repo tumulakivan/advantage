@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { disconnect } from "../db/client";
 import type { Tenant } from "../db/tenant";
 import { createTestTenant, type TestTenant } from "../testing";
-import { addAccountFromCatalog, listAccounts, updateAccount } from "./accounts";
+import { addAccountFromCatalog, listAccounts, setAccountBalance, updateAccount } from "./accounts";
 import {
   incomeBySource,
   largestExpenses,
@@ -295,6 +295,53 @@ describe("balances", () => {
     const accounts = await listAccounts(db);
     const sum = accounts.reduce((total, account) => total + account.balanceMinor, 0);
     expect(await netWorth(db)).toBe(sum);
+  });
+
+  it("sets a balance by recording the difference, in either direction", async () => {
+    const before = (await listAccounts(db)).find((account) => account.slug === "unionbank")!;
+    const totals = await monthTotals(db, MONTH);
+
+    const up = await setAccountBalance(db, before.id, {
+      balanceMinor: before.balanceMinor + 123_456,
+      date: `${MONTH}-21`,
+    });
+    expect(up.deltaMinor).toBe(123_456);
+    const down = await setAccountBalance(db, before.id, {
+      balanceMinor: before.balanceMinor - 50_000,
+      date: `${MONTH}-21`,
+    });
+    expect(down.deltaMinor).toBe(-173_456);
+
+    const after = (await listAccounts(db)).find((account) => account.id === before.id)!;
+    expect(after.balanceMinor).toBe(before.balanceMinor - 50_000);
+    expect(after.openingBalanceMinor).toBe(before.openingBalanceMinor);
+
+    // The money moved, but nobody earned or spent it.
+    expect(await monthTotals(db, MONTH)).toEqual(totals);
+    const outlook = await outlookEntries(db, `${MONTH}-01`, `${MONTH}-28`);
+    expect(outlook.some((entry) => entry.id === up.id || entry.id === down.id)).toBe(false);
+
+    const rows = await listTransactions(db, { types: ["adjustment"], accountId: before.id });
+    expect(rows.map((row) => row.amountMinor).sort((a, b) => a - b)).toEqual([-173_456, 123_456]);
+
+    await deleteTransaction(db, up.id!);
+    await deleteTransaction(db, down.id!);
+    const restored = (await listAccounts(db)).find((account) => account.id === before.id)!;
+    expect(restored.balanceMinor).toBe(before.balanceMinor);
+  });
+
+  it("records nothing when the balance already matches", async () => {
+    const cash = (await listAccounts(db)).find((account) => account.slug === "cash")!;
+    const result = await setAccountBalance(db, cash.id, { balanceMinor: cash.balanceMinor });
+    expect(result).toEqual({ id: null, deltaMinor: 0 });
+    expect(await listTransactions(db, { types: ["adjustment"] })).toHaveLength(0);
+  });
+
+  it("refuses to edit an adjustment rather than move a confirmed balance", async () => {
+    const cash = (await listAccounts(db)).find((account) => account.slug === "cash")!;
+    const { id } = await setAccountBalance(db, cash.id, { balanceMinor: 0, date: `${MONTH}-21` });
+    await expect(updateTransaction(db, id!, { amountMinor: 1 })).rejects.toThrow(/can't be edited/);
+    await deleteTransaction(db, id!);
   });
 });
 

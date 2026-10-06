@@ -1,6 +1,6 @@
 import { dateLabel, fullDateLabel, todayIso, type IsoDate } from "@advantage/core";
 import type { TransactionRow } from "@advantage/api-client";
-import { ArrowLeftRight, Repeat } from "lucide-react";
+import { ArrowLeftRight, Repeat, Scale } from "lucide-react";
 import * as React from "react";
 
 import { Amount } from "@/components/common/Amount";
@@ -76,9 +76,13 @@ export function TransactionList({
                         color: row.sourceColor,
                       }}
                     />
-                  ) : row.type === "transfer" ? (
+                  ) : row.type === "transfer" || row.type === "adjustment" ? (
                     <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center rounded-lg">
-                      <ArrowLeftRight className="size-3.5" />
+                      {row.type === "transfer" ? (
+                        <ArrowLeftRight className="size-3.5" />
+                      ) : (
+                        <Scale className="size-3.5" />
+                      )}
                     </span>
                   ) : (
                     <CategoryIcon icon={row.categoryIcon} color={row.categoryColor} size="sm" />
@@ -90,7 +94,9 @@ export function TransactionList({
                         {row.payee ||
                           (row.type === "transfer"
                             ? `${row.accountName} to ${row.toAccountName}`
-                            : row.categoryName) ||
+                            : row.type === "adjustment"
+                              ? "Balance adjustment"
+                              : row.categoryName) ||
                           "Untitled"}
                       </span>
                       {row.plannedPaymentId ? (
@@ -105,7 +111,9 @@ export function TransactionList({
                         ? (row.sourceShortName ?? "Income")
                         : row.type === "transfer"
                           ? "Transfer"
-                          : (row.categoryName ?? "Uncategorized")}
+                          : row.type === "adjustment"
+                            ? "Adjustment"
+                            : (row.categoryName ?? "Uncategorized")}
                       <span aria-hidden="true">&middot;</span>
                       {row.accountName}
                       {row.note ? (
@@ -120,7 +128,14 @@ export function TransactionList({
                   <Amount
                     minor={row.amountMinor}
                     direction={
-                      row.type === "income" ? "in" : row.type === "expense" ? "out" : "neutral"
+                      row.type === "income"
+                        ? "in"
+                        : row.type === "expense"
+                          ? "out"
+                          : // Stored signed, so it reads as the correction it is.
+                            row.type === "adjustment"
+                            ? "auto"
+                            : "neutral"
                     }
                     className="shrink-0 text-[14px]"
                   />
