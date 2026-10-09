@@ -1,6 +1,15 @@
-import { occurrencesBetween, type Frequency, type IsoDate, type OutlookEntry } from "@advantage/core";
+import {
+  occurrencesBetween,
+  todayIso,
+  type BalanceBasis,
+  type BalanceMove,
+  type Frequency,
+  type IsoDate,
+  type OutlookEntry,
+} from "@advantage/core";
 
 import type { Tenant } from "../db/tenant";
+import { netWorth } from "./analytics";
 import { effectiveColor } from "./mappers";
 
 /**
@@ -11,11 +20,17 @@ import { effectiveColor } from "./mappers";
  * between "this happened" and "this is expected" is the whole point of an
  * outlook. Transfers are excluded on both sides - moving money between your own
  * accounts is neither income nor spending.
+ *
+ * Before today only records count. A schedule date that has passed without
+ * being posted either happened and was logged by hand - so counting it would
+ * double it - or did not happen at all; either way it is not money still to
+ * come, and the balance line has to meet the real balance at today.
  */
 export async function outlookEntries(
   tenant: Tenant,
   from: IsoDate,
   to: IsoDate,
+  today: IsoDate = todayIso(),
 ): Promise<OutlookEntry[]> {
   const { db, userId } = tenant;
 
@@ -61,11 +76,13 @@ export async function outlookEntries(
     sourceColor: row.incomeSource?.color ?? null,
   }));
 
+  const plannedFrom = from > today ? from : today;
+
   for (const schedule of schedules) {
     const dates = occurrencesBetween(
       schedule.frequency as Frequency,
       schedule.anchorDate,
-      from,
+      plannedFrom,
       to,
       schedule.endDate,
     );
@@ -98,4 +115,51 @@ export async function outlookEntries(
     if (a.direction !== b.direction) return a.direction === "income" ? -1 : 1;
     return b.amountMinor - a.amountMinor;
   });
+}
+
+/**
+ * What the outlook's balance line stands on: the total going into `from`, and
+ * every logged change to it inside the window.
+ *
+ * The opening figure is worked back from today's net worth rather than summed
+ * forward, so it agrees with the dashboard by construction. Every record type
+ * counts here, not just income and spending: a Set balance moves the total,
+ * and so does a transfer that crosses into or out of an account kept out of
+ * totals. A transfer between two counted accounts nets to nothing, as it should.
+ */
+export async function balanceBasis(
+  tenant: Tenant,
+  from: IsoDate,
+  to: IsoDate,
+): Promise<BalanceBasis> {
+  const { db, userId } = tenant;
+
+  const [worth, accounts, records] = await Promise.all([
+    netWorth(tenant),
+    db.account.findMany({ where: { userId }, select: { id: true, excludeFromTotals: true } }),
+    db.transaction.findMany({
+      where: { userId, date: { gte: from } },
+      select: { date: true, type: true, amountMinor: true, accountId: true, toAccountId: true },
+    }),
+  ]);
+
+  const counted = new Set(accounts.filter((row) => !row.excludeFromTotals).map((row) => row.id));
+
+  let sinceFrom = 0;
+  const loggedMoves: BalanceMove[] = [];
+  for (const row of records) {
+    let delta = 0;
+    if (counted.has(row.accountId)) {
+      delta += row.type === "income" || row.type === "adjustment" ? row.amountMinor : -row.amountMinor;
+    }
+    if (row.type === "transfer" && row.toAccountId && counted.has(row.toAccountId)) {
+      delta += row.amountMinor;
+    }
+    if (delta === 0) continue;
+
+    sinceFrom += delta;
+    if (row.date <= to) loggedMoves.push({ date: row.date, deltaMinor: delta });
+  }
+
+  return { openingMinor: worth - sinceFrom, loggedMoves };
 }

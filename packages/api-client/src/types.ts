@@ -441,6 +441,33 @@ export interface Wallet {
   totals: WalletTotals;
 }
 
+/** One line of an account's month: a category group, with what it came to. */
+export interface AccountBreakdownLine {
+  key: string;
+  label: string;
+  icon: string;
+  /** Chart slot token; null for the neutral "Uncategorized". */
+  color: string | null;
+  amountMinor: Minor;
+  count: number;
+}
+
+/** One account up close: its recent cash flow and where its month went. */
+export interface AccountActivityDetail {
+  accountId: string;
+  month: MonthKey;
+  /** Six months ending at `month`, income and spending through this account only. */
+  cashflow: CashflowPoint[];
+  /** The month's income, by category group, largest first. */
+  income: AccountBreakdownLine[];
+  /** The month's spending, by category group, largest first. */
+  spending: AccountBreakdownLine[];
+  transferredInMinor: Minor;
+  transferredOutMinor: Minor;
+  /** Set balance corrections in the month, net and signed. */
+  adjustmentsMinor: Minor;
+}
+
 // ---- screen payloads --------------------------------------------------------
 
 /**

@@ -23,7 +23,7 @@ import {
 import { exportBackup, importBackup, importPlan, importRecords } from "./backup";
 import { listBudgetsForMonth, upsertBudget } from "./budgets";
 import { listCategories, listCategoryOptions, listCategoryTree } from "./categories";
-import { outlookEntries } from "./outlook";
+import { balanceBasis, outlookEntries } from "./outlook";
 import { createPlanned, listPlanned, listUpcoming, postPlanned, unpostPlanned } from "./planned";
 import {
   createIncomeSource,
@@ -38,7 +38,7 @@ import {
   listTransactions,
   updateTransaction,
 } from "./transactions";
-import { loadWallet } from "./wallet";
+import { loadAccountActivity, loadWallet } from "./wallet";
 
 /**
  * Integration tests for the data layer: real Postgres, real migrations, real
@@ -330,6 +330,28 @@ describe("balances", () => {
     expect(restored.balanceMinor).toBe(before.balanceMinor);
   });
 
+  it("starts the outlook's balance line where net worth says it should", async () => {
+    const before = (await listAccounts(db)).find((account) => account.slug === "unionbank")!;
+    const { id } = await setAccountBalance(db, before.id, {
+      balanceMinor: before.balanceMinor + 40_000,
+      date: `${MONTH}-21`,
+    });
+
+    // Walking every logged move from the opening figure lands on today's total.
+    const basis = await balanceBasis(db, `${MONTH}-01`, "2999-12-31");
+    const walked = basis.loggedMoves.reduce((sum, move) => sum + move.deltaMinor, basis.openingMinor);
+    expect(walked).toBe(await netWorth(db));
+    // The adjustment is one of those moves, though it is neither income nor spending.
+    expect(basis.loggedMoves).toContainEqual({ date: `${MONTH}-21`, deltaMinor: 40_000 });
+
+    // Opening the window after the month leaves the month inside the opening figure.
+    const later = await balanceBasis(db, "2999-01-01", "2999-12-31");
+    expect(later.openingMinor).toBe(await netWorth(db));
+    expect(later.loggedMoves).toEqual([]);
+
+    await deleteTransaction(db, id!);
+  });
+
   it("records nothing when the balance already matches", async () => {
     const cash = (await listAccounts(db)).find((account) => account.slug === "cash")!;
     const result = await setAccountBalance(db, cash.id, { balanceMinor: cash.balanceMinor });
@@ -556,11 +578,39 @@ describe("wallet", () => {
 
     await updateAccount(db, union.id, { excludeFromTotals: false });
   });
+
+  it("breaks one account's month down so it agrees with the wallet", async () => {
+    const wallet = await loadWallet(db, MONTH);
+    const bank = wallet.accounts.find((account) => account.slug === "maribank")!;
+    const detail = await loadAccountActivity(db, bank.id, MONTH, "en-PH");
+
+    // Six months of cash flow, ending at the selected one.
+    expect(detail.cashflow).toHaveLength(6);
+    expect(detail.cashflow.at(-1)?.month).toBe(MONTH);
+    expect(detail.cashflow.at(-1)?.expenseMinor).toBe(bank.spentMinor);
+    expect(detail.cashflow.at(-1)?.incomeMinor).toBe(bank.receivedMinor);
+
+    // The lines add up to the headline figures, largest first.
+    const sum = (lines: { amountMinor: number }[]) =>
+      lines.reduce((total, line) => total + line.amountMinor, 0);
+    expect(sum(detail.spending)).toBe(bank.spentMinor);
+    expect(sum(detail.income)).toBe(bank.receivedMinor);
+    const amounts = detail.spending.map((line) => line.amountMinor);
+    expect([...amounts].sort((a, b) => b - a)).toEqual(amounts);
+
+    // Transfers sit apart from spending, on both sides.
+    expect(detail.transferredOutMinor).toBe(bank.transferredOutMinor);
+    const union = wallet.accounts.find((account) => account.slug === "unionbank")!;
+    expect((await loadAccountActivity(db, union.id, MONTH, "en-PH")).transferredInMinor).toBe(
+      union.transferredInMinor,
+    );
+  });
 });
 
 describe("outlook", () => {
   it("combines logged records with the occurrences still to come", async () => {
-    const entries = await outlookEntries(db, `${MONTH}-01`, `${MONTH}-28`);
+    // Pinned to the 1st so every schedule date this month is still to come.
+    const entries = await outlookEntries(db, `${MONTH}-01`, `${MONTH}-28`, `${MONTH}-01`);
 
     expect(entries.filter((entry) => entry.kind === "logged").length).toBeGreaterThan(0);
     expect(entries.filter((entry) => entry.kind === "planned").length).toBeGreaterThan(0);
@@ -593,6 +643,17 @@ describe("outlook", () => {
     expect(occurrences[0]?.kind).toBe("logged");
 
     await unpostPlanned(db, schedule.id);
+  });
+
+  it("drops a schedule date that passed without being posted", async () => {
+    const window = addMonths(MONTH, 10);
+    const ahead = await outlookEntries(db, `${window}-01`, `${window}-28`, `${window}-01`);
+    const passed = await outlookEntries(db, `${window}-01`, `${window}-28`, `${window}-15`);
+
+    const plannedDates = (entries: typeof ahead) =>
+      entries.filter((entry) => entry.kind === "planned").map((entry) => entry.date);
+    expect(plannedDates(ahead).some((date) => date < `${window}-15`)).toBe(true);
+    expect(plannedDates(passed).every((date) => date >= `${window}-15`)).toBe(true);
   });
 
   it("expands a weekly schedule across the window", async () => {
@@ -801,6 +862,13 @@ describe("tenant isolation", () => {
 
     expect(theirs).toHaveLength(1);
     expect(theirs.some((row) => mine.some((entry) => entry.id === row.id))).toBe(false);
+  });
+
+  it("will not open another person's account in the wallet", async () => {
+    const mine = (await listAccounts(db))[0]!;
+    await expect(loadAccountActivity(other.tenant, mine.id, MONTH, "en-PH")).rejects.toThrow(
+      /does not exist/,
+    );
   });
 
   it("shows none of another account's records or figures", async () => {

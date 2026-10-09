@@ -57,6 +57,17 @@ export function addDays(iso: IsoDate, delta: number): IsoDate {
   return toIsoDate(date);
 }
 
+/** The Monday on or before `iso`. Weeks run Monday to Sunday, as in ISO 8601. */
+export function weekStart(iso: IsoDate): IsoDate {
+  const weekday = (parseIsoDate(iso).getDay() + 6) % 7;
+  return addDays(iso, -weekday);
+}
+
+/** The Sunday on or after `iso`. */
+export function weekEnd(iso: IsoDate): IsoDate {
+  return addDays(weekStart(iso), 6);
+}
+
 /** Inclusive list of month keys, oldest first. */
 export function monthRange(endMonth: MonthKey, count: number): MonthKey[] {
   return Array.from({ length: count }, (_, i) => addMonths(endMonth, i - (count - 1)));
@@ -78,6 +89,14 @@ export function monthLabel(
 export function dateLabel(iso: IsoDate, locale = "en-PH"): string {
   return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(
     parseIsoDate(iso),
+  );
+}
+
+/** "Oct 5 – 11", or "Sep 28 – Oct 4" when the week crosses a month. */
+export function weekLabel(start: IsoDate, locale = "en-PH"): string {
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).formatRange(
+    parseIsoDate(start),
+    parseIsoDate(addDays(start, 6)),
   );
 }
 

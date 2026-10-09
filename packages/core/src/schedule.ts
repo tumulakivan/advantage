@@ -6,6 +6,7 @@ import {
   monthLabel,
   parseIsoDate,
   todayIso,
+  weekStart,
   type IsoDate,
   type MonthKey,
 } from "./dates";
@@ -81,7 +82,7 @@ function daysApart(from: IsoDate, to: IsoDate): number {
 
 // ---- buckets ----------------------------------------------------------------
 
-export type Granularity = "day" | "month" | "year";
+export type Granularity = "day" | "week" | "month" | "year";
 
 /** The span decides the bucket: a year of daily bars is unreadable. */
 export function granularityFor(from: IsoDate, to: IsoDate): Granularity {
@@ -93,6 +94,8 @@ export function granularityFor(from: IsoDate, to: IsoDate): Granularity {
 
 export function bucketOf(date: IsoDate, granularity: Granularity): string {
   if (granularity === "day") return date;
+  // A week is keyed by its Monday, so the key still sorts and parses as a date.
+  if (granularity === "week") return weekStart(date);
   if (granularity === "month") return date.slice(0, 7);
   return date.slice(0, 4);
 }
@@ -106,6 +109,15 @@ export function bucketsBetween(from: IsoDate, to: IsoDate, granularity: Granular
     while (cursor <= to && keys.length < MAX_OCCURRENCES) {
       keys.push(cursor);
       cursor = addDays(cursor, 1);
+    }
+    return keys;
+  }
+
+  if (granularity === "week") {
+    let cursor = weekStart(from);
+    while (cursor <= to && keys.length < MAX_OCCURRENCES) {
+      keys.push(cursor);
+      cursor = addDays(cursor, 7);
     }
     return keys;
   }
@@ -129,6 +141,7 @@ export function bucketsBetween(from: IsoDate, to: IsoDate, granularity: Granular
 export function bucketLabel(key: string, granularity: Granularity, locale?: string): string {
   if (granularity === "year") return key;
   if (granularity === "month") return monthLabel(key, locale);
+  // Day and week both read as a date: a week is labelled by the Monday it starts on.
   return new Intl.DateTimeFormat(locale ?? "en-PH", { month: "short", day: "numeric" }).format(
     parseIsoDate(key),
   );
@@ -163,7 +176,8 @@ export interface OutlookBucket {
   /** Negative, for a bar below the baseline. */
   expenseSignedMinor: Minor;
   netMinor: Minor;
-  netLineMinor: Minor | null;
+  /** Total balance at the close of the bucket: the line the chart follows. */
+  balanceMinor: Minor;
   plannedShare: number;
   hasEntries: boolean;
   entryCount: number;
@@ -177,6 +191,35 @@ export interface OutlookTotals {
   plannedNetMinor: Minor;
   plannedCount: number;
   loggedCount: number;
+  /** Total balance going into the window. */
+  openingBalanceMinor: Minor;
+  /** Total balance once everything in the window, logged or planned, lands. */
+  closingBalanceMinor: Minor;
+  /**
+   * The real balance as of today - records only - when today falls in the
+   * window. A bucket's line point is its close, so the bucket holding today
+   * would otherwise only ever show where the week or month ends up.
+   */
+  todayBalanceMinor: Minor | null;
+}
+
+/** One dated change to the total balance, signed. */
+export interface BalanceMove {
+  date: IsoDate;
+  deltaMinor: Minor;
+}
+
+/**
+ * Where the balance line starts and what has really moved it.
+ *
+ * Logged moves are passed apart from the entries because more moves a balance
+ * than income and spending: a Set balance adjustment does, and so does a
+ * transfer into or out of an account left out of totals. Planned entries still
+ * come from `entries`, since only they say what is yet to land.
+ */
+export interface BalanceBasis {
+  openingMinor: Minor;
+  loggedMoves: readonly BalanceMove[];
 }
 
 export interface Outlook {
@@ -191,13 +234,19 @@ export function buildOutlook(
   entries: readonly OutlookEntry[],
   from: IsoDate,
   to: IsoDate,
-  options: { locale?: string; granularity?: Granularity; today?: IsoDate } = {},
+  options: {
+    locale?: string;
+    granularity?: Granularity;
+    today?: IsoDate;
+    /** Without one the line starts at zero and follows the entries alone. */
+    balance?: BalanceBasis;
+  } = {},
 ): Outlook {
   const granularity = options.granularity ?? granularityFor(from, to);
   const keys = bucketsBetween(from, to, granularity);
   const today = options.today ?? todayIso();
 
-  const empty = () => ({ income: 0, expense: 0, planned: 0, count: 0 });
+  const empty = () => ({ income: 0, expense: 0, planned: 0, count: 0, moved: 0 });
   const tally = new Map<string, ReturnType<typeof empty>>();
   for (const key of keys) tally.set(key, empty());
 
@@ -209,7 +258,11 @@ export function buildOutlook(
     plannedNetMinor: 0,
     plannedCount: 0,
     loggedCount: 0,
+    openingBalanceMinor: options.balance?.openingMinor ?? 0,
+    closingBalanceMinor: 0,
+    todayBalanceMinor: null,
   };
+  let loggedToToday = 0;
 
   for (const entry of entries) {
     const bucket = tally.get(bucketOf(entry.date, granularity));
@@ -227,21 +280,35 @@ export function buildOutlook(
 
     bucket.count += 1;
     if (entry.kind === "planned") {
+      bucket.moved += signed;
       bucket.planned += entry.amountMinor;
       totals.plannedNetMinor += signed;
       totals.plannedCount += 1;
     } else {
+      if (!options.balance) {
+        bucket.moved += signed;
+        if (entry.date <= today) loggedToToday += signed;
+      }
       totals.loggedNetMinor += signed;
       totals.loggedCount += 1;
     }
   }
 
+  for (const move of options.balance?.loggedMoves ?? []) {
+    const bucket = tally.get(bucketOf(move.date, granularity));
+    if (!bucket) continue;
+    bucket.moved += move.deltaMinor;
+    if (move.date <= today) loggedToToday += move.deltaMinor;
+  }
+
   totals.netMinor = totals.incomeMinor - totals.expenseMinor;
 
+  let balance = totals.openingBalanceMinor;
   const buckets: OutlookBucket[] = keys.map((key) => {
     const row = tally.get(key) ?? empty();
     const netMinor = row.income - row.expense;
     const moved = row.income + row.expense;
+    balance += row.moved;
 
     return {
       key,
@@ -250,15 +317,18 @@ export function buildOutlook(
       expenseMinor: row.expense,
       expenseSignedMinor: -row.expense,
       netMinor,
-      // A line through an empty bucket would claim a net that was never measured.
-      netLineMinor: row.count > 0 ? netMinor : null,
+      balanceMinor: balance,
       plannedShare: moved === 0 ? 0 : row.planned / moved,
       hasEntries: row.count > 0,
       entryCount: row.count,
     };
   });
 
+  totals.closingBalanceMinor = balance;
   const todayKey = bucketOf(today, granularity);
+  if (keys.includes(todayKey)) {
+    totals.todayBalanceMinor = totals.openingBalanceMinor + loggedToToday;
+  }
 
   return {
     buckets,

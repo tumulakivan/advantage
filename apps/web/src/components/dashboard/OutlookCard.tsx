@@ -6,6 +6,8 @@ import {
   monthStart,
   relativeDayLabel,
   todayIso,
+  weekEnd,
+  weekStart,
   type Granularity,
   type MonthKey,
   type OutlookEntry,
@@ -27,61 +29,88 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useOutlook } from "@/hooks/useData";
 import { useMonth } from "@/hooks/useMonth";
 import { cn } from "@/lib/utils";
-import { useSettings } from "@/providers/SettingsProvider";
+import { useMoney, useSettings } from "@/providers/SettingsProvider";
 
 type Mode = "month" | "range" | "year";
 
 const LIST_LIMIT = 120;
 
 /**
- * Outlook: what the months ahead look like once the schedule is counted.
+ * Balance forecast: where the total balance goes once the schedule is counted.
  *
  * It answers a question the rest of the dashboard cannot, because every other
  * card reads only what has already been logged. Here a planned occurrence is
  * projected forward and shown next to the records, clearly marked as the
- * difference between a promise and a receipt.
+ * difference between a promise and a receipt, and the line carries the running
+ * total from today's real balance rather than each period on its own.
  */
 export function OutlookCard() {
   const { settings } = useSettings();
+  const money = useMoney();
   const { month } = useMonth();
 
   const [mode, setMode] = React.useState<Mode>("range");
   const [rangeFrom, setRangeFrom] = React.useState<MonthKey>(month);
   const [rangeTo, setRangeTo] = React.useState<MonthKey>(() => addMonths(month, 5));
   const [year, setYear] = React.useState(() => Number(month.slice(0, 4)));
+  // Weekly pay lands in weeks, not months; this regroups any timeframe by week.
+  const [byWeek, setByWeek] = React.useState(false);
 
   const window = React.useMemo(() => {
-    if (mode === "month") {
-      return {
-        from: monthStart(month),
-        to: monthEnd(month),
-        granularity: "day" as Granularity,
-        caption: `${monthLabel(month, settings.locale, "long")}, day by day`,
-      };
-    }
+    const span = (() => {
+      if (mode === "month") {
+        return {
+          from: monthStart(month),
+          to: monthEnd(month),
+          granularity: "day" as Granularity,
+          caption: monthLabel(month, settings.locale, "long"),
+          step: "day by day",
+        };
+      }
 
-    if (mode === "year") {
+      if (mode === "year") {
+        return {
+          from: `${year}-01-01`,
+          to: `${year}-12-31`,
+          granularity: "month" as Granularity,
+          caption: String(year),
+          step: "month by month",
+        };
+      }
+
+      // Two pickers can be set in either order; read them as a span, not a pair.
+      const [start, end] = rangeFrom <= rangeTo ? [rangeFrom, rangeTo] : [rangeTo, rangeFrom];
       return {
-        from: `${year}-01-01`,
-        to: `${year}-12-31`,
+        from: monthStart(start),
+        to: monthEnd(end),
         granularity: "month" as Granularity,
-        caption: `${year}, month by month`,
+        caption: `${monthLabel(start, settings.locale, "long")} to ${monthLabel(
+          end,
+          settings.locale,
+          "long",
+        )}`,
+        step: null,
+      };
+    })();
+
+    if (byWeek) {
+      // Widen to whole weeks: a first or last bar holding only part of a week
+      // would look like a quiet week rather than a cut-off one.
+      return {
+        from: weekStart(span.from),
+        to: weekEnd(span.to),
+        granularity: "week" as Granularity,
+        caption: `${span.caption}, week by week`,
       };
     }
 
-    // Two pickers can be set in either order; read them as a span, not a pair.
-    const [start, end] = rangeFrom <= rangeTo ? [rangeFrom, rangeTo] : [rangeTo, rangeFrom];
     return {
-      from: monthStart(start),
-      to: monthEnd(end),
-      granularity: "month" as Granularity,
-      caption: `${monthLabel(start, settings.locale, "long")} to ${monthLabel(
-        end,
-        settings.locale,
-        "long",
-      )}`,
+      from: span.from,
+      to: span.to,
+      granularity: span.granularity,
+      caption: span.step ? `${span.caption}, ${span.step}` : span.caption,
     };
-  }, [mode, month, rangeFrom, rangeTo, year, settings.locale]);
+  }, [mode, month, rangeFrom, rangeTo, year, byWeek, settings.locale]);
 
   const { data, loading, stale } = useOutlook(
     window.from,
@@ -95,7 +124,7 @@ export function OutlookCard() {
   return (
     <section className="space-y-4">
       <ChartCard
-        title="Outlook"
+        title="Balance forecast"
         description={`Projected from what is logged plus what is scheduled - ${window.caption}.`}
         legend={<OutlookLegend />}
         table={<OutlookTable outlook={outlook} />}
@@ -103,6 +132,8 @@ export function OutlookCard() {
           <TimeframeControls
             mode={mode}
             onModeChange={setMode}
+            byWeek={byWeek}
+            onByWeek={setByWeek}
             rangeFrom={rangeFrom}
             rangeTo={rangeTo}
             onRangeFrom={setRangeFrom}
@@ -131,7 +162,7 @@ export function OutlookCard() {
                 label="Expected income"
                 minor={totals.incomeMinor}
                 direction="in"
-                hint={monthlyRate(
+                hint={rateHint(
                   totals.incomeMinor,
                   outlook.buckets.length,
                   outlook.granularity,
@@ -142,7 +173,7 @@ export function OutlookCard() {
                 label="Expected spending"
                 minor={totals.expenseMinor}
                 direction="out"
-                hint={monthlyRate(
+                hint={rateHint(
                   totals.expenseMinor,
                   outlook.buckets.length,
                   outlook.granularity,
@@ -150,13 +181,21 @@ export function OutlookCard() {
                 )}
               />
               <Metric
-                label="Projected net"
-                minor={totals.netMinor}
+                label="Ending balance"
+                minor={totals.closingBalanceMinor}
                 direction="auto"
                 hint={
-                  totals.plannedCount > 0
-                    ? `${totals.loggedCount} logged · ${totals.plannedCount} still planned`
-                    : "all logged"
+                  // Measured from today when the window holds it: that is the
+                  // figure you can check against your accounts.
+                  totals.todayBalanceMinor !== null
+                    ? `from ${money(totals.todayBalanceMinor)} today · ${money(
+                        totals.closingBalanceMinor - totals.todayBalanceMinor,
+                        { signed: true },
+                      )}`
+                    : `from ${money(totals.openingBalanceMinor)} at the start · ${money(
+                        totals.closingBalanceMinor - totals.openingBalanceMinor,
+                        { signed: true },
+                      )}`
                 }
               />
             </div>
@@ -171,18 +210,21 @@ export function OutlookCard() {
 }
 
 /**
- * Rough per-month equivalent, so a 3-month window and a 12-month one can be
- * compared at a glance rather than by dividing in your head.
+ * Rough per-period equivalent, so a 3-month window and a 12-month one can be
+ * compared at a glance rather than by dividing in your head. Weekly views give
+ * a weekly rate, since that is the unit someone paid weekly budgets in.
  */
-function monthlyRate(minor: number, buckets: number, granularity: Granularity, locale: string): string {
+function rateHint(minor: number, buckets: number, granularity: Granularity, locale: string): string {
+  const compact = (value: number) =>
+    new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(
+      Math.round(value) / 100,
+    );
+
+  if (granularity === "week") return `about ${compact(minor / Math.max(buckets, 1))} a week`;
+
   const months =
     granularity === "day" ? 1 : granularity === "month" ? Math.max(buckets, 1) : buckets * 12;
-  const perMonth = Math.round(minor / Math.max(months, 1)) / 100;
-  const compact = new Intl.NumberFormat(locale, {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(perMonth);
-  return `about ${compact} a month`;
+  return `about ${compact(minor / Math.max(months, 1))} a month`;
 }
 
 function Metric({
@@ -213,6 +255,8 @@ function Metric({
 function TimeframeControls({
   mode,
   onModeChange,
+  byWeek,
+  onByWeek,
   rangeFrom,
   rangeTo,
   onRangeFrom,
@@ -222,6 +266,8 @@ function TimeframeControls({
 }: {
   mode: Mode;
   onModeChange: (mode: Mode) => void;
+  byWeek: boolean;
+  onByWeek: (byWeek: boolean) => void;
   rangeFrom: MonthKey;
   rangeTo: MonthKey;
   onRangeFrom: (month: MonthKey) => void;
@@ -269,6 +315,16 @@ function TimeframeControls({
           follows the month above
         </span>
       ) : null}
+
+      <Tabs
+        value={byWeek ? "week" : "base"}
+        onValueChange={(value) => onByWeek(value === "week")}
+      >
+        <TabsList className="h-8" aria-label="Group by">
+          <TabsTrigger value="base">{mode === "month" ? "Daily" : "Monthly"}</TabsTrigger>
+          <TabsTrigger value="week">Weekly</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       <Tabs value={mode} onValueChange={(value) => onModeChange(value as Mode)}>
         <TabsList className="h-8">

@@ -7,9 +7,11 @@ import {
   listPlanned,
   listTransactions,
   listUpcoming,
+  loadAccountActivity,
   loadDashboard,
   loadOutlook,
   loadWallet,
+  type AccountActivityDetail,
   type AccountWithBalance,
   type BudgetRow,
   type CategoryNode,
@@ -133,6 +135,9 @@ const EMPTY_OUTLOOK: OutlookData = {
       plannedNetMinor: 0,
       plannedCount: 0,
       loggedCount: 0,
+      openingBalanceMinor: 0,
+      closingBalanceMinor: 0,
+      todayBalanceMinor: null,
     },
   },
 };
@@ -165,6 +170,30 @@ const EMPTY_WALLET: Wallet = {
     accountCount: 0,
   },
 };
+
+const EMPTY_ACCOUNT_ACTIVITY: AccountActivityDetail = {
+  accountId: "",
+  month: "",
+  cashflow: [],
+  income: [],
+  spending: [],
+  transferredInMinor: 0,
+  transferredOutMinor: 0,
+  adjustmentsMinor: 0,
+};
+
+/** One account up close: six months of its cash flow and its month by category. */
+export function useAccountActivity(
+  accountId: string,
+  month: MonthKey,
+  locale: string,
+): QueryResult<AccountActivityDetail> {
+  return useLiveQuery(
+    (api, signal) => loadAccountActivity(api, accountId, month, locale, signal),
+    [accountId, month, locale],
+    EMPTY_ACCOUNT_ACTIVITY,
+  );
+}
 
 /** Balances for every account, plus what moved through each one this month. */
 export function useWallet(month: MonthKey, includeArchived = false): QueryResult<Wallet> {

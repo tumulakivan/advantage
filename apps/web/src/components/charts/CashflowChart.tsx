@@ -27,12 +27,19 @@ import { useMoney } from "@/providers/SettingsProvider";
  * deuteranopic separation of 7.6. One money axis; the net line shares it
  * because it is the same unit, and a second scale would be a lie.
  */
-export function CashflowChart({ data }: { data: CashflowPoint[] }) {
+export function CashflowChart({
+  data,
+  height = 260,
+}: {
+  data: CashflowPoint[];
+  /** The wallet's account pop-up draws a smaller copy of the same chart. */
+  height?: number;
+}) {
   const money = useMoney();
   const animate = !useReducedMotion();
 
   return (
-    <div className="h-[260px] w-full">
+    <div className="w-full" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -18 }} barGap={2}>
           <CartesianGrid {...GRID} />

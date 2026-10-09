@@ -1,7 +1,7 @@
 import { Router } from "express";
 
 import { loadDashboard, loadOutlook } from "../queries/screens";
-import { loadWallet } from "../queries/wallet";
+import { loadAccountActivity, loadWallet } from "../queries/wallet";
 import { monthQuery, outlookQuery, walletQuery } from "../validation";
 
 /**
@@ -23,4 +23,10 @@ screensRouter.get("/outlook", async (req, res) => {
 screensRouter.get("/wallet", async (req, res) => {
   const { month, includeArchived } = walletQuery.parse(req.query);
   res.json(await loadWallet(req.tenant, month, { includeArchived }));
+});
+
+/** One account up close, for the wallet's pop-up. */
+screensRouter.get("/wallet/:accountId", async (req, res) => {
+  const { month, locale } = monthQuery.parse(req.query);
+  res.json(await loadAccountActivity(req.tenant, req.params.accountId, month, locale));
 });

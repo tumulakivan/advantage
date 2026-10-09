@@ -232,5 +232,5 @@ export const outlookQuery = z.object({
   from: isoDate,
   to: isoDate,
   locale: z.string().max(20).default("en-PH"),
-  granularity: z.enum(["day", "month", "year"]).optional(),
+  granularity: z.enum(["day", "week", "month", "year"]).optional(),
 });

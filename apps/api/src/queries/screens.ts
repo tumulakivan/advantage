@@ -20,7 +20,7 @@ import {
   netWorth,
   spendByGroup,
 } from "./analytics";
-import { outlookEntries } from "./outlook";
+import { balanceBasis, outlookEntries } from "./outlook";
 
 /**
  * Whole screens, assembled in one place.
@@ -73,9 +73,13 @@ export async function loadOutlook(
   locale: string,
   granularity?: Granularity,
 ): Promise<OutlookData> {
-  const entries = await outlookEntries(tenant, from, to);
+  const today = todayIso();
+  const [entries, balance] = await Promise.all([
+    outlookEntries(tenant, from, to, today),
+    balanceBasis(tenant, from, to),
+  ]);
   return {
     entries,
-    outlook: buildOutlook(entries, from, to, { locale, granularity, today: todayIso() }),
+    outlook: buildOutlook(entries, from, to, { locale, granularity, today, balance }),
   };
 }

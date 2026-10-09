@@ -724,23 +724,32 @@ async function main() {
       await page.$$eval("[data-testid=wallet-accounts] img", 
         (nodes) => nodes.every((node) => node.naturalWidth > 0)));
 
-    // Selecting one account narrows the module to that account.
-    await clickText(page, "[role=radio]", "GCash");
+    // Clicking an account opens its card over the widget; Escape closes it.
+    await clickText(page, "[data-testid=wallet-accounts] button", "GCash");
     await page.waitForFunction(
       () => Boolean(document.querySelector("[data-testid=wallet-detail]")),
       { timeout: 10_000 },
     );
-    check("selecting an account switches to its own activity", true);
+    await pause(600);
+    const popupText = await page.$eval("[data-testid=wallet-detail]", (node) =>
+      node.textContent.toLowerCase(),
+    );
+    check(
+      "the account card shows its own cash flow and breakdown",
+      popupText.includes("gcash") &&
+        popupText.includes("cash flow") &&
+        popupText.includes("money in") &&
+        popupText.includes("money out"),
+    );
     await scrollToHeading(page, "Wallet");
-    await pause(400);
     await page.screenshot({ path: path.join(SHOTS, "14-wallet-account.png") });
 
-    await clickText(page, "[role=radio]", "All accounts");
+    await page.keyboard.press("Escape");
     await page.waitForFunction(
-      () => Boolean(document.querySelector("[data-testid=wallet-accounts]")),
+      () => !document.querySelector("[data-testid=wallet-detail]"),
       { timeout: 10_000 },
     );
-    check("switching back shows every account again", true);
+    check("escape closes the account card", true);
     await scrollToHeading(page, "Wallet");
     await pause(400);
     await page.screenshot({ path: path.join(SHOTS, "15-wallet-all.png") });
@@ -780,14 +789,14 @@ async function main() {
 
     // 7b. Outlook: the forward view built from records plus the schedule.
     await page.goto(`${target}/`, { waitUntil: "networkidle2" });
-    await waitForText(page, "outlook", 30_000);
+    await waitForText(page, "balance forecast", 30_000);
     await waitForText(page, "expected income", 20_000);
 
     const outlookText = await textOf(page);
     check("outlook renders its three metrics", 
       outlookText.includes("expected income") &&
       outlookText.includes("expected spending") &&
-      outlookText.includes("projected net"));
+      outlookText.includes("ending balance"));
     check(
       "outlook defaults to a six-month range",
       outlookText.includes("september 2026 to february 2027"),

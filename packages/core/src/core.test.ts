@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { buildBreakdown, budgetVerdict, buildCashflowSeries, computeKpis } from "./analytics";
-import { addMonths, dueDateIn, monthRange, nextOccurrence, relativeDayLabel } from "./dates";
+import {
+  addMonths,
+  dueDateIn,
+  monthRange,
+  nextOccurrence,
+  relativeDayLabel,
+  weekEnd,
+  weekStart,
+} from "./dates";
 import { formatMoney, parseAmount, share, toMinor } from "./money";
 
 describe("money", () => {
@@ -33,6 +41,13 @@ describe("money", () => {
 });
 
 describe("dates", () => {
+  it("runs weeks Monday to Sunday", () => {
+    expect(weekStart("2026-10-05")).toBe("2026-10-05");
+    expect(weekStart("2026-10-11")).toBe("2026-10-05");
+    expect(weekStart("2027-01-01")).toBe("2026-12-28");
+    expect(weekEnd("2026-10-01")).toBe("2026-10-04");
+  });
+
   it("walks months across year boundaries", () => {
     expect(addMonths("2026-01", -1)).toBe("2025-12");
     expect(monthRange("2026-03", 3)).toEqual(["2026-01", "2026-02", "2026-03"]);

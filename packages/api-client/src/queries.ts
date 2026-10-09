@@ -1,4 +1,5 @@
 import type {
+  AccountActivityDetail,
   AccountInput,
   AccountPatch,
   AccountWithBalance,
@@ -247,6 +248,16 @@ export function loadOutlook(
   signal?: AbortSignal,
 ): Promise<OutlookData> {
   return api.get("/api/outlook", { from, to, locale, granularity }, signal);
+}
+
+export function loadAccountActivity(
+  api: ApiClient,
+  accountId: string,
+  month: MonthKey,
+  locale: string,
+  signal?: AbortSignal,
+): Promise<AccountActivityDetail> {
+  return api.get(`/api/wallet/${encodeURIComponent(accountId)}`, { month, locale }, signal);
 }
 
 export function loadWallet(

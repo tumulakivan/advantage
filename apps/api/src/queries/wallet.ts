@@ -1,5 +1,19 @@
-import type { AccountActivity, Wallet } from "@advantage/api-client/types";
-import { monthEnd, monthStart, type MonthKey } from "@advantage/core";
+import type {
+  AccountActivity,
+  AccountActivityDetail,
+  AccountBreakdownLine,
+  Wallet,
+} from "@advantage/api-client/types";
+import {
+  buildCashflowSeries,
+  monthEnd,
+  monthRange,
+  monthStart,
+  type MonthKey,
+  type MonthTotalsRow,
+} from "@advantage/core";
+
+import { ApiError } from "../errors";
 
 import type { Tenant } from "../db/tenant";
 import { listAccounts } from "./accounts";
@@ -98,5 +112,111 @@ export async function loadWallet(
       monthCount: counted.reduce((sum, account) => sum + account.monthCount, 0),
       accountCount: counted.length,
     },
+  };
+}
+
+/**
+ * One account up close, for the wallet's pop-up: six months of its cash flow,
+ * and the selected month broken down by category group on both sides.
+ *
+ * Income and spending follow the same rule as everywhere else - transfers and
+ * adjustments are neither - but both are reported apart, because on a single
+ * account they are often most of what happened.
+ */
+export async function loadAccountActivity(
+  tenant: Tenant,
+  accountId: string,
+  month: MonthKey,
+  locale: string,
+): Promise<AccountActivityDetail> {
+  const { db, userId } = tenant;
+
+  const account = await db.account.findFirst({ where: { id: accountId, userId }, select: { id: true } });
+  if (!account) throw ApiError.notFound("That account does not exist.");
+
+  const months = monthRange(month, 6);
+  const from = monthStart(months[0] ?? month);
+  const to = monthEnd(month);
+
+  const [rows, incoming] = await Promise.all([
+    db.transaction.findMany({
+      where: { userId, accountId, date: { gte: from, lte: to } },
+      select: {
+        date: true,
+        type: true,
+        amountMinor: true,
+        category: {
+          select: {
+            id: true,
+            name: true,
+            icon: true,
+            color: true,
+            parent: { select: { id: true, name: true, icon: true, color: true } },
+          },
+        },
+      },
+    }),
+    db.transaction.aggregate({
+      where: {
+        userId,
+        type: "transfer",
+        toAccountId: accountId,
+        date: { gte: monthStart(month), lte: to },
+      },
+      _sum: { amountMinor: true },
+    }),
+  ]);
+
+  const byMonth = new Map<string, MonthTotalsRow>();
+  const income = new Map<string, AccountBreakdownLine>();
+  const spending = new Map<string, AccountBreakdownLine>();
+  let transferredOutMinor = 0;
+  let adjustmentsMinor = 0;
+
+  for (const row of rows) {
+    const inMonth = row.date >= monthStart(month);
+
+    if (row.type === "income" || row.type === "expense") {
+      const key = row.date.slice(0, 7);
+      const totals = byMonth.get(key) ?? { month: key, incomeMinor: 0, expenseMinor: 0 };
+      if (row.type === "income") totals.incomeMinor += row.amountMinor;
+      else totals.expenseMinor += row.amountMinor;
+      byMonth.set(key, totals);
+
+      if (!inMonth) continue;
+      const group = row.category?.parent ?? row.category;
+      const lines = row.type === "income" ? income : spending;
+      const lineKey = group?.id ?? "__uncategorized__";
+      const line = lines.get(lineKey) ?? {
+        key: lineKey,
+        label: group?.name ?? "Uncategorized",
+        icon: group?.icon ?? "Tag",
+        color: group?.color ?? null,
+        amountMinor: 0,
+        count: 0,
+      };
+      line.amountMinor += row.amountMinor;
+      line.count += 1;
+      lines.set(lineKey, line);
+      continue;
+    }
+
+    if (!inMonth) continue;
+    if (row.type === "transfer") transferredOutMinor += row.amountMinor;
+    else if (row.type === "adjustment") adjustmentsMinor += row.amountMinor;
+  }
+
+  const largestFirst = (lines: Map<string, AccountBreakdownLine>) =>
+    [...lines.values()].sort((a, b) => b.amountMinor - a.amountMinor);
+
+  return {
+    accountId,
+    month,
+    cashflow: buildCashflowSeries([...byMonth.values()], months, locale),
+    income: largestFirst(income),
+    spending: largestFirst(spending),
+    transferredInMinor: incoming._sum.amountMinor ?? 0,
+    transferredOutMinor,
+    adjustmentsMinor,
   };
 }
